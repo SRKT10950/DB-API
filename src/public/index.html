@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DB API - PostgreSQL Gateway & Security Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/admin/styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'monospace'],
+          },
+          colors: {
+            brand: {
+              50: '#f0f9ff',
+              100: '#e0f2fe',
+              500: '#0284c7',
+              600: '#0369a1',
+              700: '#075985',
+              900: '#0c4a6e',
+            },
+            dark: {
+              800: '#1e293b',
+              850: '#172033',
+              900: '#0f172a',
+              950: '#080d1a',
+            }
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="bg-dark-950 text-slate-100 min-h-screen flex flex-col font-sans antialiased">
+
+  <!-- Top Navigation Bar -->
+  <header class="border-b border-slate-800 bg-dark-900/80 backdrop-blur sticky top-0 z-40">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-sky-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-sky-500/20">
+          <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
+          </svg>
+        </div>
+        <div>
+          <div class="flex items-center space-x-2">
+            <span class="font-extrabold text-lg tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-sky-400 to-indigo-300">DB API</span>
+            <span class="text-xs px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-400 font-semibold border border-sky-500/20">v1.0 Docker</span>
+          </div>
+          <p class="text-xs text-slate-400 font-mono">db.mhservice.co.in/API/1/:dbName</p>
+        </div>
+      </div>
+
+      <!-- Right Header Actions -->
+      <div class="flex items-center space-x-4">
+        <div id="pgStatusPill" class="flex items-center space-x-2 px-3 py-1 rounded-full text-xs font-medium bg-slate-800 border border-slate-700">
+          <span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+          <span class="text-slate-300">Checking DB...</span>
+        </div>
+
+        <div class="flex items-center space-x-2">
+          <label class="text-xs text-slate-400 font-medium">Admin Secret:</label>
+          <input type="password" id="adminSecretInput" class="bg-dark-800 border border-slate-700 text-xs px-3 py-1.5 rounded-lg focus:outline-none focus:border-sky-500 font-mono w-44" placeholder="Admin Secret Key">
+          <button id="saveSecretBtn" class="bg-sky-600 hover:bg-sky-500 text-white text-xs px-3 py-1.5 rounded-lg transition font-medium">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Navigation Tabs -->
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex space-x-1 overflow-x-auto border-t border-slate-800/60 pt-1">
+      <button class="nav-tab active-tab" data-tab="overviewTab">
+        <svg class="w-4 h-4 mr-1.5 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+        Overview
+      </button>
+      <button class="nav-tab" data-tab="keysTab">
+        <svg class="w-4 h-4 mr-1.5 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>
+        API Keys & Access Control
+      </button>
+      <button class="nav-tab" data-tab="devicesTab">
+        <svg class="w-4 h-4 mr-1.5 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+        Device Security
+      </button>
+      <button class="nav-tab" data-tab="logsTab">
+        <svg class="w-4 h-4 mr-1.5 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+        Audit & Threat Logs
+      </button>
+      <button class="nav-tab" data-tab="dbTab">
+        <svg class="w-4 h-4 mr-1.5 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4"/></svg>
+        Database Manager
+      </button>
+      <button class="nav-tab" data-tab="playgroundTab">
+        <svg class="w-4 h-4 mr-1.5 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+        API Playground
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+
+    <!-- 1. OVERVIEW TAB -->
+    <div id="overviewTab" class="tab-pane active">
+      <!-- Quick Demo Seed Banner -->
+      <div class="mb-6 p-4 rounded-xl bg-gradient-to-r from-sky-900/40 via-indigo-950/40 to-slate-900 border border-sky-500/30 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div>
+          <h2 class="text-sm font-bold text-sky-300 flex items-center gap-2">
+            <span class="flex h-2 w-2 relative">
+              <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75"></span>
+              <span class="relative inline-flex rounded-full h-2 w-2 bg-sky-500"></span>
+            </span>
+            Instant PostgreSQL Environment Setup Option
+          </h2>
+          <p class="text-xs text-slate-300 mt-1">One-click provisioning initializes a demo database (<code class="bg-dark-900 px-1 py-0.5 rounded text-sky-400">mh_demo_db</code>) with sample products, orders, and test credentials.</p>
+        </div>
+        <button id="setupDemoBtn" class="whitespace-nowrap px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold shadow-md transition flex items-center gap-2">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
+          Provision Demo DB & Test Keys
+        </button>
+      </div>
+
+      <!-- Stat Cards -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+        <div class="p-5 rounded-xl bg-dark-900 border border-slate-800 shadow-sm">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium text-slate-400 uppercase tracking-wider">Total Requests</span>
+            <div class="w-8 h-8 rounded-lg bg-sky-500/10 text-sky-400 flex items-center justify-center">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
+            </div>
+          </div>
+          <p id="statTotalRequests" class="text-2xl font-bold text-white mt-2">0</p>
+          <p class="text-xs text-slate-500 mt-1">Queries & table operations</p>
+        </div>
+
+        <div class="p-5 rounded-xl bg-dark-900 border border-slate-800 shadow-sm">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium text-slate-400 uppercase tracking-wider">Threats Blocked</span>
+            <div class="w-8 h-8 rounded-lg bg-rose-500/10 text-rose-400 flex items-center justify-center">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+            </div>
+          </div>
+          <p id="statThreatsBlocked" class="text-2xl font-bold text-rose-400 mt-2">0</p>
+          <p class="text-xs text-slate-500 mt-1">SQLi, DDL violations & spoofing</p>
+        </div>
+
+        <div class="p-5 rounded-xl bg-dark-900 border border-slate-800 shadow-sm">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium text-slate-400 uppercase tracking-wider">Active API Keys</span>
+            <div class="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>
+            </div>
+          </div>
+          <p id="statActiveKeys" class="text-2xl font-bold text-white mt-2">0</p>
+          <p class="text-xs text-slate-500 mt-1">Granular CRUD/DDL keys</p>
+        </div>
+
+        <div class="p-5 rounded-xl bg-dark-900 border border-slate-800 shadow-sm">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium text-slate-400 uppercase tracking-wider">Registered Devices</span>
+            <div class="w-8 h-8 rounded-lg bg-indigo-500/10 text-indigo-400 flex items-center justify-center">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+            </div>
+          </div>
+          <p id="statActiveDevices" class="text-2xl font-bold text-white mt-2">0</p>
+          <p class="text-xs text-slate-500 mt-1">With Device Security Keys</p>
+        </div>
+      </div>
+
+      <!-- Security Specifications Table -->
+      <div class="p-5 rounded-xl bg-dark-900 border border-slate-800 mb-6">
+        <h3 class="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+          <svg class="w-4 h-4 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+          Enforced 7-Point Security Header Specification
+        </h3>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs border-collapse">
+            <thead>
+              <tr class="border-b border-slate-800 text-slate-400 uppercase tracking-wider">
+                <th class="py-2.5 px-3">Header Name</th>
+                <th class="py-2.5 px-3">Description</th>
+                <th class="py-2.5 px-3">Validation Mechanism</th>
+                <th class="py-2.5 px-3">Threat Defense</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-800/60 font-mono text-slate-300">
+              <tr>
+                <td class="py-2.5 px-3 text-sky-400 font-bold">Key</td>
+                <td class="py-2.5 px-3 font-sans">App & Database API Key</td>
+                <td class="py-2.5 px-3">SHA-256 hashed lookup with CRUD/DDL flags</td>
+                <td class="py-2.5 px-3 font-sans text-slate-400">Restricts operations per application and database</td>
+              </tr>
+              <tr>
+                <td class="py-2.5 px-3 text-sky-400 font-bold">IP</td>
+                <td class="py-2.5 px-3 font-sans">Client Reported IP</td>
+                <td class="py-2.5 px-3">Cross-referenced against socket IP & whitelist</td>
+                <td class="py-2.5 px-3 font-sans text-slate-400">Detects proxy tampering & IP spoofing</td>
+              </tr>
+              <tr>
+                <td class="py-2.5 px-3 text-sky-400 font-bold">DeviceName</td>
+                <td class="py-2.5 px-3 font-sans">Client Device Identifier</td>
+                <td class="py-2.5 px-3">Unique device record bound to application</td>
+                <td class="py-2.5 px-3 font-sans text-slate-400">Prevents unauthorized machine execution</td>
+              </tr>
+              <tr>
+                <td class="py-2.5 px-3 text-sky-400 font-bold">Location</td>
+                <td class="py-2.5 px-3 font-sans">Client Location / Geo-tag</td>
+                <td class="py-2.5 px-3">Logged in audit trail, geo-fence matching</td>
+                <td class="py-2.5 px-3 font-sans text-slate-400">Forensic location traceability</td>
+              </tr>
+              <tr>
+                <td class="py-2.5 px-3 text-sky-400 font-bold">DeviceType</td>
+                <td class="py-2.5 px-3 font-sans">Server / Desktop / Mobile / IoT</td>
+                <td class="py-2.5 px-3">Verified against device registration profile</td>
+                <td class="py-2.5 px-3 font-sans text-slate-400">Prevents device type escalation</td>
+              </tr>
+              <tr>
+                <td class="py-2.5 px-3 text-sky-400 font-bold">AppName</td>
+                <td class="py-2.5 px-3 font-sans">Application Name</td>
+                <td class="py-2.5 px-3">Strict match against key owner record</td>
+                <td class="py-2.5 px-3 font-sans text-slate-400">Prevents key sharing across different apps</td>
+              </tr>
+              <tr>
+                <td class="py-2.5 px-3 text-sky-400 font-bold">Device Security Key</td>
+                <td class="py-2.5 px-3 font-sans">Pre-shared Secret Key for Device</td>
+                <td class="py-2.5 px-3">Cryptographic hash verification</td>
+                <td class="py-2.5 px-3 font-sans text-slate-400">Stops leaked API key usage on cloned devices</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. API KEYS TAB -->
+    <div id="keysTab" class="tab-pane hidden">
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h2 class="text-base font-bold text-white">Database API Keys</h2>
+          <p class="text-xs text-slate-400">Dedicated keys for each database with granular CRUD and DDL permissions.</p>
+        </div>
+        <button id="openNewKeyModalBtn" class="px-3.5 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold shadow transition flex items-center gap-1.5">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+          Generate New API Key
+        </button>
+      </div>
+
+      <div class="p-5 rounded-xl bg-dark-900 border border-slate-800 overflow-x-auto">
+        <table class="w-full text-left text-xs border-collapse">
+          <thead>
+            <tr class="border-b border-slate-800 text-slate-400 uppercase tracking-wider font-mono">
+              <th class="py-3 px-3">App Name</th>
+              <th class="py-3 px-3">Target Database</th>
+              <th class="py-3 px-3">Key Preview</th>
+              <th class="py-3 px-3">Access Permissions (CRUD & DDL)</th>
+              <th class="py-3 px-3">Status</th>
+              <th class="py-3 px-3">Last Used</th>
+              <th class="py-3 px-3 text-right">Action</th>
+            </tr>
+          </thead>
+          <tbody id="keysTableBody" class="divide-y divide-slate-800/60">
+            <!-- Rendered dynamically -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 3. DEVICE SECURITY TAB -->
+    <div id="devicesTab" class="tab-pane hidden">
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h2 class="text-base font-bold text-white">Device Security & Device Keys</h2>
+          <p class="text-xs text-slate-400">Manage registered devices and pre-shared Device Security Keys.</p>
+        </div>
+        <button id="openNewDeviceModalBtn" class="px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow transition flex items-center gap-1.5">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+          Register New Device
+        </button>
+      </div>
+
+      <div class="p-5 rounded-xl bg-dark-900 border border-slate-800 overflow-x-auto">
+        <table class="w-full text-left text-xs border-collapse">
+          <thead>
+            <tr class="border-b border-slate-800 text-slate-400 uppercase tracking-wider font-mono">
+              <th class="py-3 px-3">App Name</th>
+              <th class="py-3 px-3">Device Name</th>
+              <th class="py-3 px-3">Device Type</th>
+              <th class="py-3 px-3">Security Key Prefix</th>
+              <th class="py-3 px-3">Status</th>
+              <th class="py-3 px-3">Last Seen</th>
+              <th class="py-3 px-3 text-right">Action</th>
+            </tr>
+          </thead>
+          <tbody id="devicesTableBody" class="divide-y divide-slate-800/60">
+            <!-- Rendered dynamically -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 4. AUDIT & THREAT LOGS TAB -->
+    <div id="logsTab" class="tab-pane hidden">
+      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
+        <div>
+          <h2 class="text-base font-bold text-white">Database Access & Threat Logs</h2>
+          <p class="text-xs text-slate-400">Real-time audit log of all database operations and firewall blocks.</p>
+        </div>
+        <div class="flex items-center space-x-2">
+          <select id="logThreatFilter" class="bg-dark-800 border border-slate-700 text-xs px-3 py-1.5 rounded-lg text-slate-200">
+            <option value="ALL">All Threat Levels</option>
+            <option value="CRITICAL">Critical Only</option>
+            <option value="HIGH">High & Critical</option>
+            <option value="MEDIUM">Medium & Above</option>
+            <option value="NONE">Clean / Normal</option>
+          </select>
+          <button id="refreshLogsBtn" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs transition flex items-center gap-1">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      <div class="p-5 rounded-xl bg-dark-900 border border-slate-800 overflow-x-auto">
+        <table class="w-full text-left text-xs border-collapse">
+          <thead>
+            <tr class="border-b border-slate-800 text-slate-400 uppercase tracking-wider font-mono">
+              <th class="py-3 px-3">Timestamp</th>
+              <th class="py-3 px-3">Status</th>
+              <th class="py-3 px-3">Operation</th>
+              <th class="py-3 px-3">App / DB</th>
+              <th class="py-3 px-3">Device / IP</th>
+              <th class="py-3 px-3">Latency</th>
+              <th class="py-3 px-3">Threat Reason / Summary</th>
+            </tr>
+          </thead>
+          <tbody id="logsTableBody" class="divide-y divide-slate-800/60 font-mono">
+            <!-- Rendered dynamically -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 5. DATABASE MANAGER TAB -->
+    <div id="dbTab" class="tab-pane hidden">
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="md:col-span-2 p-5 rounded-xl bg-dark-900 border border-slate-800">
+          <h2 class="text-base font-bold text-white mb-2">PostgreSQL Databases</h2>
+          <p class="text-xs text-slate-400 mb-4">Databases detected on the local PostgreSQL container/instance.</p>
+          <ul id="databasesList" class="space-y-2">
+            <!-- Rendered dynamically -->
+          </ul>
+        </div>
+
+        <div class="p-5 rounded-xl bg-dark-900 border border-slate-800">
+          <h2 class="text-base font-bold text-white mb-2">Provision New Database</h2>
+          <p class="text-xs text-slate-400 mb-4">Create a new isolated database in PostgreSQL.</p>
+          <form id="createDbForm" class="space-y-3">
+            <div>
+              <label class="block text-xs text-slate-400 mb-1">Database Name:</label>
+              <input type="text" id="newDbNameInput" class="w-full bg-dark-800 border border-slate-700 text-xs px-3 py-2 rounded-lg font-mono" placeholder="my_service_db" required>
+            </div>
+            <button type="submit" class="w-full bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold py-2 rounded-lg transition">Create Database</button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- 6. API PLAYGROUND TAB -->
+    <div id="playgroundTab" class="tab-pane hidden">
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Request Panel -->
+        <div class="p-5 rounded-xl bg-dark-900 border border-slate-800 flex flex-col">
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="text-base font-bold text-white">API Playground</h2>
+            <div class="flex items-center space-x-2">
+              <span class="text-xs text-slate-400">Presets:</span>
+              <button id="presetSelect" class="preset-btn">Select Products</button>
+              <button id="presetDDL" class="preset-btn">Test Blocked DDL</button>
+              <button id="presetSQLi" class="preset-btn">Test SQL Injection</button>
+            </div>
+          </div>
+
+          <div class="space-y-3 flex-1 flex flex-col">
+            <div class="grid grid-cols-3 gap-2">
+              <div>
+                <label class="text-xs text-slate-400 block mb-1">Target Database</label>
+                <input type="text" id="playDbName" class="w-full bg-dark-800 border border-slate-700 text-xs px-3 py-1.5 rounded-lg font-mono" value="mh_demo_db">
+              </div>
+              <div class="col-span-2">
+                <label class="text-xs text-slate-400 block mb-1">Endpoint Path</label>
+                <input type="text" id="playEndpoint" class="w-full bg-dark-800 border border-slate-700 text-xs px-3 py-1.5 rounded-lg font-mono text-sky-400" value="/API/1/mh_demo_db/query">
+              </div>
+            </div>
+
+            <!-- 7 Headers Input Block -->
+            <details class="bg-dark-800/80 p-3 rounded-lg border border-slate-700/80">
+              <summary class="text-xs font-semibold text-slate-300 cursor-pointer flex items-center justify-between">
+                <span>Required 7 Security Headers</span>
+                <span class="text-sky-400 text-xs font-mono">View/Edit</span>
+              </summary>
+              <div class="grid grid-cols-2 gap-2 mt-3 text-xs">
+                <div>
+                  <label class="text-slate-400 block">Key:</label>
+                  <input type="text" id="playKey" class="w-full bg-dark-900 border border-slate-700 px-2 py-1 rounded font-mono text-xs" value="dbapi_live_demo_key_7f8a9b0c">
+                </div>
+                <div>
+                  <label class="text-slate-400 block">IP:</label>
+                  <input type="text" id="playIP" class="w-full bg-dark-900 border border-slate-700 px-2 py-1 rounded font-mono text-xs" value="192.168.1.100">
+                </div>
+                <div>
+                  <label class="text-slate-400 block">DeviceName:</label>
+                  <input type="text" id="playDeviceName" class="w-full bg-dark-900 border border-slate-700 px-2 py-1 rounded font-mono text-xs" value="Terminal-1">
+                </div>
+                <div>
+                  <label class="text-slate-400 block">Location:</label>
+                  <input type="text" id="playLocation" class="w-full bg-dark-900 border border-slate-700 px-2 py-1 rounded font-mono text-xs" value="HQ-Office-A">
+                </div>
+                <div>
+                  <label class="text-slate-400 block">DeviceType:</label>
+                  <input type="text" id="playDeviceType" class="w-full bg-dark-900 border border-slate-700 px-2 py-1 rounded font-mono text-xs" value="Server">
+                </div>
+                <div>
+                  <label class="text-slate-400 block">AppName:</label>
+                  <input type="text" id="playAppName" class="w-full bg-dark-900 border border-slate-700 px-2 py-1 rounded font-mono text-xs" value="MainSystem">
+                </div>
+                <div class="col-span-2">
+                  <label class="text-slate-400 block">Device Security Key:</label>
+                  <input type="text" id="playDeviceSecKey" class="w-full bg-dark-900 border border-slate-700 px-2 py-1 rounded font-mono text-xs" value="dsk_demo_sec_998877">
+                </div>
+              </div>
+            </details>
+
+            <!-- Query Body -->
+            <div class="flex-1 flex flex-col">
+              <label class="text-xs text-slate-400 block mb-1">Request Body (JSON):</label>
+              <textarea id="playRequestBody" class="w-full flex-1 min-h-[140px] bg-dark-800 border border-slate-700 text-xs p-3 rounded-lg font-mono focus:outline-none focus:border-sky-500" placeholder='{ "query": "SELECT * FROM products LIMIT 10", "params": [] }'>{
+  "query": "SELECT * FROM products LIMIT 5;",
+  "params": []
+}</textarea>
+            </div>
+
+            <button id="sendPlaygroundBtn" class="w-full py-2.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-semibold text-xs transition flex items-center justify-center gap-2 shadow-lg shadow-sky-600/20">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+              Send Request to DB API
+            </button>
+          </div>
+        </div>
+
+        <!-- Response Panel -->
+        <div class="p-5 rounded-xl bg-dark-900 border border-slate-800 flex flex-col">
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="text-base font-bold text-white">Live Response</h2>
+            <div id="playResponseMeta" class="text-xs font-mono text-slate-400">Ready</div>
+          </div>
+          <pre id="playResponseOutput" class="flex-1 bg-dark-950 border border-slate-800 rounded-lg p-4 font-mono text-xs text-slate-300 overflow-auto min-h-[300px]">Send a request to see the API response here...</pre>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Modal: Generate New Key -->
+  <div id="newKeyModal" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-dark-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl">
+      <h3 class="text-lg font-bold text-white mb-2">Generate Database API Key</h3>
+      <p class="text-xs text-slate-400 mb-4">Configure application, target database, and granular CRUD & DDL permissions.</p>
+
+      <form id="createKeyForm" class="space-y-4">
+        <div>
+          <label class="block text-xs text-slate-300 mb-1">Application Name:</label>
+          <input type="text" id="keyAppName" class="w-full bg-dark-800 border border-slate-700 text-xs px-3 py-2 rounded-lg text-white" placeholder="BillingService" required>
+        </div>
+        <div>
+          <label class="block text-xs text-slate-300 mb-1">Target PostgreSQL Database:</label>
+          <input type="text" id="keyDbName" class="w-full bg-dark-800 border border-slate-700 text-xs px-3 py-2 rounded-lg text-white" placeholder="mh_demo_db" required>
+        </div>
+
+        <div>
+          <label class="block text-xs text-slate-300 mb-2">Granular Access Control Permissions:</label>
+          <div class="grid grid-cols-2 gap-2 bg-dark-800 p-3 rounded-lg border border-slate-700/60 text-xs">
+            <label class="flex items-center space-x-2 text-slate-300">
+              <input type="checkbox" id="permCreate" checked class="rounded border-slate-700 text-sky-600">
+              <span>Create (INSERT)</span>
+            </label>
+            <label class="flex items-center space-x-2 text-slate-300">
+              <input type="checkbox" id="permRead" checked class="rounded border-slate-700 text-sky-600">
+              <span>Read (SELECT)</span>
+            </label>
+            <label class="flex items-center space-x-2 text-slate-300">
+              <input type="checkbox" id="permUpdate" checked class="rounded border-slate-700 text-sky-600">
+              <span>Update (UPDATE)</span>
+            </label>
+            <label class="flex items-center space-x-2 text-slate-300">
+              <input type="checkbox" id="permDelete" class="rounded border-slate-700 text-sky-600">
+              <span>Delete (DELETE)</span>
+            </label>
+            <label class="flex items-center space-x-2 text-rose-400 col-span-2 pt-1 border-t border-slate-700/60">
+              <input type="checkbox" id="permDDL" class="rounded border-slate-700 text-rose-600">
+              <span>DDL (CREATE/DROP/ALTER TABLE)</span>
+            </label>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs text-slate-300 mb-1">Allowed IPs (Optional, comma-separated):</label>
+          <input type="text" id="keyAllowedIps" class="w-full bg-dark-800 border border-slate-700 text-xs px-3 py-2 rounded-lg text-white" placeholder="e.g. 192.168.1.100, 10.0.0.5">
+        </div>
+
+        <div class="flex items-center justify-end space-x-2 pt-3">
+          <button type="button" id="closeKeyModalBtn" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 font-medium">Cancel</button>
+          <button type="submit" class="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-xs text-white font-semibold shadow">Generate Key</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: Key Created Success Alert -->
+  <div id="keyCreatedModal" class="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-dark-900 border border-emerald-500/40 rounded-2xl max-w-lg w-full p-6 shadow-2xl">
+      <div class="flex items-center space-x-3 mb-3">
+        <div class="w-10 h-10 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+        </div>
+        <div>
+          <h3 class="text-base font-bold text-white">API Key Generated!</h3>
+          <p class="text-xs text-slate-400">Copy this key now. It will not be shown again.</p>
+        </div>
+      </div>
+
+      <div class="bg-dark-950 p-3 rounded-lg border border-slate-800 my-4 flex items-center justify-between">
+        <code id="newPlainKeyDisplay" class="font-mono text-xs text-emerald-400 break-all select-all"></code>
+        <button id="copyKeyBtn" class="ml-2 px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded transition">Copy</button>
+      </div>
+
+      <button id="dismissKeyCreatedModalBtn" class="w-full py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold rounded-lg">Done</button>
+    </div>
+  </div>
+
+  <!-- Modal: Register Device -->
+  <div id="newDeviceModal" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-dark-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl">
+      <h3 class="text-lg font-bold text-white mb-2">Register Device</h3>
+      <p class="text-xs text-slate-400 mb-4">Register a client device and generate its Device Security Key.</p>
+
+      <form id="createDeviceForm" class="space-y-4">
+        <div>
+          <label class="block text-xs text-slate-300 mb-1">Application Name:</label>
+          <input type="text" id="devAppName" class="w-full bg-dark-800 border border-slate-700 text-xs px-3 py-2 rounded-lg text-white" placeholder="MainSystem" required>
+        </div>
+        <div>
+          <label class="block text-xs text-slate-300 mb-1">Device Name:</label>
+          <input type="text" id="devDeviceName" class="w-full bg-dark-800 border border-slate-700 text-xs px-3 py-2 rounded-lg text-white" placeholder="Warehouse-Terminal-3" required>
+        </div>
+        <div>
+          <label class="block text-xs text-slate-300 mb-1">Device Type:</label>
+          <select id="devDeviceType" class="w-full bg-dark-800 border border-slate-700 text-xs px-3 py-2 rounded-lg text-white">
+            <option value="Server">Server</option>
+            <option value="Desktop">Desktop</option>
+            <option value="Mobile">Mobile</option>
+            <option value="IoT">IoT</option>
+          </select>
+        </div>
+
+        <div class="flex items-center justify-end space-x-2 pt-3">
+          <button type="button" id="closeDeviceModalBtn" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 font-medium">Cancel</button>
+          <button type="submit" class="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-xs text-white font-semibold shadow">Register</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <footer class="border-t border-slate-800/80 py-4 text-center text-xs text-slate-500 font-mono">
+    DB API Gateway • Built for Local PostgreSQL Protection & Monitoring • db.mhservice.co.in
+  </footer>
+
+  <script src="/admin/app.js"></script>
+</body>
+</html>

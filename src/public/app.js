@@ -165,18 +165,20 @@ let currentKeysMap = new Map();
 
 async function loadKeys() {
   const data = await fetchAdmin('/keys');
-  if (!data.success) return;
+  if (!data || !data.success) return;
 
   const tbody = document.getElementById('keysTableBody');
+  if (!tbody) return;
   tbody.innerHTML = '';
   currentKeysMap.clear();
+  state.keys = data.keys || [];
 
   data.keys.forEach((key) => {
     currentKeysMap.set(key.id, key);
     const tr = document.createElement('tr');
     tr.className = 'hover:bg-slate-800/40 transition font-mono text-xs';
 
-    const p = key.permissions;
+    const p = key.permissions || {};
     const badge = (name, enabled, color = 'emerald') => {
       const cls = enabled
         ? `bg-${color}-500/10 text-${color}-400 border border-${color}-500/20`
@@ -194,7 +196,7 @@ async function loadKeys() {
       <td class="py-3 px-3 text-sky-400 font-semibold">${escapeHtml(key.dbName)}</td>
       <td class="py-3 px-3 text-slate-400">${escapeHtml(key.keyPrefix)}</td>
       <td class="py-3 px-3">
-        <div onclick="openEditPermissionsModal('${key.id}')" class="flex flex-wrap items-center gap-1 cursor-pointer hover:opacity-85 transition group" title="Click to edit permissions">
+        <div data-edit-key="${key.id}" onclick="openEditPermissionsModal('${key.id}')" class="edit-perm-btn flex flex-wrap items-center gap-1 cursor-pointer hover:opacity-85 transition group" title="Click to edit permissions">
           ${badge('C:Insert', p.can_create, 'emerald')}
           ${badge('R:Select', p.can_read, 'emerald')}
           ${badge('U:Update', p.can_update, 'emerald')}
@@ -207,13 +209,13 @@ async function loadKeys() {
       <td class="py-3 px-3 text-slate-400">${key.lastUsedAt ? new Date(key.lastUsedAt).toLocaleTimeString() : 'Never'}</td>
       <td class="py-3 px-3 text-right">
         <div class="flex items-center justify-end gap-1.5 font-sans">
-          <button onclick="openEditPermissionsModal('${key.id}')" class="px-2 py-1 rounded bg-slate-800 hover:bg-sky-950/60 hover:text-sky-300 text-sky-400 text-xs transition border border-slate-700 hover:border-sky-500/30 font-medium flex items-center gap-1">
-            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
-            <span>Edit</span>
+          <button type="button" data-edit-key="${key.id}" onclick="openEditPermissionsModal('${key.id}')" class="edit-perm-btn px-2 py-1 rounded bg-slate-800 hover:bg-sky-950/60 hover:text-sky-300 text-sky-400 text-xs transition border border-slate-700 hover:border-sky-500/30 font-medium flex items-center gap-1">
+            <svg class="w-3 h-3 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+            <span class="pointer-events-none">Edit</span>
           </button>
           ${
             key.status === 'active'
-              ? `<button onclick="revokeKey('${key.id}')" class="px-2 py-1 rounded bg-rose-950/30 hover:bg-rose-950/60 text-rose-400 hover:text-rose-300 text-xs transition border border-rose-500/20 font-medium">Revoke</button>`
+              ? `<button type="button" onclick="revokeKey('${key.id}')" class="px-2 py-1 rounded bg-rose-950/30 hover:bg-rose-950/60 text-rose-400 hover:text-rose-300 text-xs transition border border-rose-500/20 font-medium">Revoke</button>`
               : '<span class="text-slate-600 px-2 py-1">-</span>'
           }
         </div>
@@ -398,185 +400,429 @@ const newKeyModal = document.getElementById('newKeyModal');
 const openNewKeyModalBtn = document.getElementById('openNewKeyModalBtn');
 const closeKeyModalBtn = document.getElementById('closeKeyModalBtn');
 
-openNewKeyModalBtn.addEventListener('click', () => newKeyModal.classList.remove('hidden'));
-closeKeyModalBtn.addEventListener('click', () => newKeyModal.classList.add('hidden'));
+if (openNewKeyModalBtn && newKeyModal) {
+  openNewKeyModalBtn.addEventListener('click', () => newKeyModal.classList.remove('hidden'));
+}
+if (closeKeyModalBtn && newKeyModal) {
+  closeKeyModalBtn.addEventListener('click', () => newKeyModal.classList.add('hidden'));
+}
 
-document.getElementById('createKeyForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const appName = document.getElementById('keyAppName').value.trim();
-  const dbName = document.getElementById('keyDbName').value.trim();
-  const can_create = document.getElementById('permCreate').checked;
-  const can_read = document.getElementById('permRead').checked;
-  const can_update = document.getElementById('permUpdate').checked;
-  const can_delete = document.getElementById('permDelete').checked;
-  const can_ddl = document.getElementById('permDDL').checked;
-  const rawIps = document.getElementById('keyAllowedIps').value.trim();
-  const allowedIps = rawIps ? rawIps.split(',').map((s) => s.trim()) : [];
+const createKeyForm = document.getElementById('createKeyForm');
+if (createKeyForm) {
+  createKeyForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const appName = document.getElementById('keyAppName')?.value.trim();
+    const dbName = document.getElementById('keyDbName')?.value.trim();
+    const can_create = document.getElementById('permCreate')?.checked ?? false;
+    const can_read = document.getElementById('permRead')?.checked ?? false;
+    const can_update = document.getElementById('permUpdate')?.checked ?? false;
+    const can_delete = document.getElementById('permDelete')?.checked ?? false;
+    const can_ddl = document.getElementById('permDDL')?.checked ?? false;
+    const rawIps = document.getElementById('keyAllowedIps')?.value.trim();
+    const allowedIps = rawIps ? rawIps.split(',').map((s) => s.trim()) : [];
 
-  const res = await fetchAdmin('/keys', {
-    method: 'POST',
-    body: JSON.stringify({
-      appName,
-      dbName,
-      permissions: { can_create, can_read, can_update, can_delete, can_ddl },
-      allowedIps,
-    }),
+    const res = await fetchAdmin('/keys', {
+      method: 'POST',
+      body: JSON.stringify({
+        appName,
+        dbName,
+        permissions: { can_create, can_read, can_update, can_delete, can_ddl },
+        allowedIps,
+      }),
+    });
+
+    if (res.success) {
+      if (newKeyModal) newKeyModal.classList.add('hidden');
+      const plainDisplay = document.getElementById('newPlainKeyDisplay');
+      if (plainDisplay) plainDisplay.textContent = res.rawKey;
+      const createdModal = document.getElementById('keyCreatedModal');
+      if (createdModal) createdModal.classList.remove('hidden');
+      loadKeys();
+      loadOverview();
+    } else {
+      alert(res.error || 'Failed to create key');
+    }
   });
+}
 
-  if (res.success) {
-    newKeyModal.classList.add('hidden');
-    document.getElementById('newPlainKeyDisplay').textContent = res.rawKey;
-    document.getElementById('keyCreatedModal').classList.remove('hidden');
-    loadKeys();
-    loadOverview();
-  } else {
-    alert(res.error || 'Failed to create key');
+const copyKeyBtn = document.getElementById('copyKeyBtn');
+if (copyKeyBtn) {
+  copyKeyBtn.addEventListener('click', () => {
+    const text = document.getElementById('newPlainKeyDisplay')?.textContent || '';
+    navigator.clipboard.writeText(text);
+    showToast('API Key copied to clipboard!');
+  });
+}
+
+const dismissKeyCreatedModalBtn = document.getElementById('dismissKeyCreatedModalBtn');
+if (dismissKeyCreatedModalBtn) {
+  dismissKeyCreatedModalBtn.addEventListener('click', () => {
+    const createdModal = document.getElementById('keyCreatedModal');
+    if (createdModal) createdModal.classList.add('hidden');
+  });
+}
+
+// -------------------------------------------------------------
+// Edit Permissions Modal (with Dynamic DOM fallback & delegation)
+// -------------------------------------------------------------
+function ensureEditPermissionsModal() {
+  let modal = document.getElementById('editPermissionsModal');
+  if (!modal) {
+    console.log('[DB API] editPermissionsModal not in DOM, creating dynamically...');
+    modal = document.createElement('div');
+    modal.id = 'editPermissionsModal';
+    modal.className = 'fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4';
+    modal.style.display = 'none';
+    modal.innerHTML = `
+      <div class="bg-dark-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl">
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="text-base font-bold text-white flex items-center gap-2">
+            <svg class="w-5 h-5 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+            <span>Update Access Permissions (CRUD & DDL)</span>
+          </h3>
+          <span id="editKeyStatusBadge" class="px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">active</span>
+        </div>
+        <p class="text-xs text-slate-400 mb-4">Modify CRUD and DDL operation privileges for this API key. Updates apply immediately in memory and in PostgreSQL <code class="text-sky-400 font-mono">db_admin</code>.</p>
+
+        <div class="bg-dark-950 p-3 rounded-xl border border-slate-800/80 mb-4 space-y-1.5 text-xs font-mono">
+          <div class="flex justify-between">
+            <span class="text-slate-400">Application:</span>
+            <span id="editKeyAppName" class="text-white font-sans font-bold"></span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-slate-400">Database:</span>
+            <span id="editKeyDbName" class="text-sky-400 font-semibold"></span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-slate-400">Key Prefix:</span>
+            <span id="editKeyPrefix" class="text-slate-300"></span>
+          </div>
+        </div>
+
+        <form id="editPermissionsForm" class="space-y-4">
+          <input type="hidden" id="editKeyId" value="">
+
+          <div>
+            <label class="block text-xs font-semibold text-slate-200 mb-2">CRUD & DDL Operation Privileges:</label>
+            <div class="grid grid-cols-2 gap-2.5 bg-dark-800 p-3 rounded-xl border border-slate-700/60 text-xs">
+              <label class="flex items-center space-x-2.5 text-slate-300 cursor-pointer p-1.5 rounded-lg hover:bg-slate-700/30 transition">
+                <input type="checkbox" id="editPermCreate" class="w-4 h-4 rounded border-slate-600 bg-dark-900 text-sky-500 focus:ring-0">
+                <div>
+                  <div class="font-semibold text-white">Create (INSERT)</div>
+                  <div class="text-[10px] text-slate-400">Insert new table records</div>
+                </div>
+              </label>
+              <label class="flex items-center space-x-2.5 text-slate-300 cursor-pointer p-1.5 rounded-lg hover:bg-slate-700/30 transition">
+                <input type="checkbox" id="editPermRead" class="w-4 h-4 rounded border-slate-600 bg-dark-900 text-sky-500 focus:ring-0">
+                <div>
+                  <div class="font-semibold text-white">Read (SELECT)</div>
+                  <div class="text-[10px] text-slate-400">Query and list tables</div>
+                </div>
+              </label>
+              <label class="flex items-center space-x-2.5 text-slate-300 cursor-pointer p-1.5 rounded-lg hover:bg-slate-700/30 transition">
+                <input type="checkbox" id="editPermUpdate" class="w-4 h-4 rounded border-slate-600 bg-dark-900 text-sky-500 focus:ring-0">
+                <div>
+                  <div class="font-semibold text-white">Update (UPDATE)</div>
+                  <div class="text-[10px] text-slate-400">Modify existing records</div>
+                </div>
+              </label>
+              <label class="flex items-center space-x-2.5 text-slate-300 cursor-pointer p-1.5 rounded-lg hover:bg-slate-700/30 transition">
+                <input type="checkbox" id="editPermDelete" class="w-4 h-4 rounded border-slate-600 bg-dark-900 text-amber-500 focus:ring-0">
+                <div>
+                  <div class="font-semibold text-amber-300">Delete (DELETE)</div>
+                  <div class="text-[10px] text-slate-400">Remove table records</div>
+                </div>
+              </label>
+              <label class="flex items-center space-x-2.5 text-rose-300 col-span-2 pt-2 border-t border-slate-700/60 cursor-pointer p-1.5 rounded-lg hover:bg-rose-950/20 transition">
+                <input type="checkbox" id="editPermDDL" class="w-4 h-4 rounded border-slate-600 bg-dark-900 text-rose-500 focus:ring-0">
+                <div>
+                  <div class="font-semibold text-rose-400 flex items-center gap-1.5">
+                    <span>DDL (Data Definition Language)</span>
+                    <span class="text-[9px] px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-300 font-mono">HIGH RISK</span>
+                  </div>
+                  <div class="text-[10px] text-slate-400">CREATE TABLE, ALTER TABLE, DROP TABLE, TRUNCATE</div>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <div id="editPermissionsError" class="text-xs text-rose-400 hidden bg-rose-950/30 border border-rose-500/30 p-2.5 rounded-lg"></div>
+
+          <div class="flex items-center justify-end space-x-2 pt-2">
+            <button type="button" id="closeEditPermissionsModalBtn" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 font-medium transition">Cancel</button>
+            <button type="submit" id="savePermissionsBtn" class="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-xs text-white font-semibold shadow transition flex items-center gap-1.5">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+              Save Permissions
+            </button>
+          </div>
+        </form>
+      </div>
+    `;
+    document.body.appendChild(modal);
   }
-});
 
-document.getElementById('copyKeyBtn').addEventListener('click', () => {
-  const text = document.getElementById('newPlainKeyDisplay').textContent;
-  navigator.clipboard.writeText(text);
-  showToast('API Key copied to clipboard!');
-});
+  const closeBtn = document.getElementById('closeEditPermissionsModalBtn');
+  if (closeBtn && !closeBtn._bound) {
+    closeBtn._bound = true;
+    closeBtn.addEventListener('click', closeEditPermissionsModal);
+  }
 
-document.getElementById('dismissKeyCreatedModalBtn').addEventListener('click', () => {
-  document.getElementById('keyCreatedModal').classList.add('hidden');
-});
+  const form = document.getElementById('editPermissionsForm');
+  if (form && !form._bound) {
+    form._bound = true;
+    form.addEventListener('submit', handleSavePermissions);
+  }
 
-// Edit Permissions Modal
-window.openEditPermissionsModal = function (id) {
-  const key = currentKeysMap.get(id);
-  if (!key) return;
+  if (!modal._backdropBound) {
+    modal._backdropBound = true;
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        closeEditPermissionsModal();
+      }
+    });
+  }
 
-  document.getElementById('editKeyId').value = key.id;
-  document.getElementById('editKeyAppName').textContent = key.appName;
-  document.getElementById('editKeyDbName').textContent = key.dbName;
-  document.getElementById('editKeyPrefix').textContent = key.keyPrefix;
-  document.getElementById('editKeyStatusBadge').textContent = key.status;
-  document.getElementById('editKeyStatusBadge').className =
-    key.status === 'active'
-      ? 'px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-      : 'px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20';
+  return modal;
+}
 
-  document.getElementById('editPermCreate').checked = Boolean(key.permissions.can_create);
-  document.getElementById('editPermRead').checked = Boolean(key.permissions.can_read);
-  document.getElementById('editPermUpdate').checked = Boolean(key.permissions.can_update);
-  document.getElementById('editPermDelete').checked = Boolean(key.permissions.can_delete);
-  document.getElementById('editPermDDL').checked = Boolean(key.permissions.can_ddl);
+function closeEditPermissionsModal() {
+  const modal = document.getElementById('editPermissionsModal');
+  if (modal) {
+    modal.style.display = 'none';
+    modal.classList.add('hidden');
+  }
+}
+window.closeEditPermissionsModal = closeEditPermissionsModal;
 
-  const errEl = document.getElementById('editPermissionsError');
-  errEl.classList.add('hidden');
-  errEl.textContent = '';
+window.openEditPermissionsModal = async function (id) {
+  console.log('[DB API] openEditPermissionsModal called with id:', id);
+  try {
+    const modal = ensureEditPermissionsModal();
+    let key = currentKeysMap.get(id);
 
-  document.getElementById('editPermissionsModal').classList.remove('hidden');
+    if (!key && state && Array.isArray(state.keys)) {
+      key = state.keys.find((k) => String(k.id) === String(id));
+    }
+
+    if (!key) {
+      console.warn('[DB API] Key not in map, fetching latest /keys...');
+      const data = await fetchAdmin('/keys');
+      if (data && data.success && Array.isArray(data.keys)) {
+        state.keys = data.keys;
+        data.keys.forEach((k) => currentKeysMap.set(k.id, k));
+        key = currentKeysMap.get(id) || data.keys.find((k) => String(k.id) === String(id));
+      }
+    }
+
+    if (!key) {
+      console.error('[DB API] Unable to find key for id:', id);
+      alert('Could not load details for this API key. Please refresh.');
+      return;
+    }
+
+    const editKeyId = document.getElementById('editKeyId');
+    const editKeyAppName = document.getElementById('editKeyAppName');
+    const editKeyDbName = document.getElementById('editKeyDbName');
+    const editKeyPrefix = document.getElementById('editKeyPrefix');
+    const editKeyStatusBadge = document.getElementById('editKeyStatusBadge');
+
+    if (editKeyId) editKeyId.value = key.id;
+    if (editKeyAppName) editKeyAppName.textContent = key.appName || '';
+    if (editKeyDbName) editKeyDbName.textContent = key.dbName || '';
+    if (editKeyPrefix) editKeyPrefix.textContent = key.keyPrefix || '';
+    if (editKeyStatusBadge) {
+      editKeyStatusBadge.textContent = key.status || 'active';
+      editKeyStatusBadge.className =
+        key.status === 'active'
+          ? 'px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+          : 'px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20';
+    }
+
+    const p = key.permissions || {};
+    const setChecked = (elemId, val) => {
+      const el = document.getElementById(elemId);
+      if (el) el.checked = Boolean(val);
+    };
+    setChecked('editPermCreate', p.can_create);
+    setChecked('editPermRead', p.can_read);
+    setChecked('editPermUpdate', p.can_update);
+    setChecked('editPermDelete', p.can_delete);
+    setChecked('editPermDDL', p.can_ddl);
+
+    const errEl = document.getElementById('editPermissionsError');
+    if (errEl) {
+      errEl.classList.add('hidden');
+      errEl.style.display = 'none';
+      errEl.textContent = '';
+    }
+
+    modal.classList.remove('hidden');
+    modal.style.display = 'flex';
+  } catch (err) {
+    console.error('[DB API] Error in openEditPermissionsModal:', err);
+    alert('Error opening edit permissions modal: ' + err.message);
+  }
 };
 
-document.getElementById('closeEditPermissionsModalBtn').addEventListener('click', () => {
-  document.getElementById('editPermissionsModal').classList.add('hidden');
-});
+async function handleSavePermissions(e) {
+  if (e) e.preventDefault();
+  const keyId = document.getElementById('editKeyId')?.value;
+  if (!keyId) return;
 
-document.getElementById('editPermissionsForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const keyId = document.getElementById('editKeyId').value;
-  const can_create = document.getElementById('editPermCreate').checked;
-  const can_read = document.getElementById('editPermRead').checked;
-  const can_update = document.getElementById('editPermUpdate').checked;
-  const can_delete = document.getElementById('editPermDelete').checked;
-  const can_ddl = document.getElementById('editPermDDL').checked;
+  const can_create = document.getElementById('editPermCreate')?.checked ?? false;
+  const can_read = document.getElementById('editPermRead')?.checked ?? false;
+  const can_update = document.getElementById('editPermUpdate')?.checked ?? false;
+  const can_delete = document.getElementById('editPermDelete')?.checked ?? false;
+  const can_ddl = document.getElementById('editPermDDL')?.checked ?? false;
 
   const saveBtn = document.getElementById('savePermissionsBtn');
-  const originalText = saveBtn.innerHTML;
-  saveBtn.innerHTML = '<span>Saving...</span>';
-  saveBtn.disabled = true;
+  const originalHtml = saveBtn ? saveBtn.innerHTML : 'Save Permissions';
+  if (saveBtn) {
+    saveBtn.innerHTML = '<span>Saving...</span>';
+    saveBtn.disabled = true;
+  }
 
-  const res = await fetchAdmin(`/keys/${keyId}/permissions`, {
-    method: 'PATCH',
-    body: JSON.stringify({
-      permissions: {
-        can_create,
-        can_read,
-        can_update,
-        can_delete,
-        can_ddl,
-      },
-    }),
-  });
+  try {
+    const res = await fetchAdmin(`/keys/${keyId}/permissions`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        permissions: {
+          can_create,
+          can_read,
+          can_update,
+          can_delete,
+          can_ddl,
+        },
+      }),
+    });
 
-  saveBtn.innerHTML = originalText;
-  saveBtn.disabled = false;
+    if (res.success) {
+      closeEditPermissionsModal();
+      showToast('Access permissions updated successfully!');
+      await loadKeys();
+    } else {
+      const errEl = document.getElementById('editPermissionsError');
+      if (errEl) {
+        errEl.textContent = res.error || 'Failed to update permissions';
+        errEl.classList.remove('hidden');
+        errEl.style.display = 'block';
+      } else {
+        alert(res.error || 'Failed to update permissions');
+      }
+    }
+  } catch (err) {
+    console.error('[DB API] Error in handleSavePermissions:', err);
+    alert('Failed to save permissions: ' + err.message);
+  } finally {
+    if (saveBtn) {
+      saveBtn.innerHTML = originalHtml;
+      saveBtn.disabled = false;
+    }
+  }
+}
 
-  if (res.success) {
-    document.getElementById('editPermissionsModal').classList.add('hidden');
-    showToast('Access permissions updated successfully!');
-    loadKeys();
-  } else {
-    const errEl = document.getElementById('editPermissionsError');
-    errEl.textContent = res.error || 'Failed to update permissions';
-    errEl.classList.remove('hidden');
+// Delegated click handler for edit permissions triggers
+document.addEventListener('click', (e) => {
+  const trigger = e.target.closest('[data-edit-key]');
+  if (trigger) {
+    const keyId = trigger.getAttribute('data-edit-key');
+    if (keyId) {
+      window.openEditPermissionsModal(keyId);
+    }
   }
 });
 
 // Device Modal
 const newDeviceModal = document.getElementById('newDeviceModal');
-document.getElementById('openNewDeviceModalBtn').addEventListener('click', () => newDeviceModal.classList.remove('hidden'));
-document.getElementById('closeDeviceModalBtn').addEventListener('click', () => newDeviceModal.classList.add('hidden'));
+const openNewDeviceModalBtn = document.getElementById('openNewDeviceModalBtn');
+if (openNewDeviceModalBtn && newDeviceModal) {
+  openNewDeviceModalBtn.addEventListener('click', () => newDeviceModal.classList.remove('hidden'));
+}
+const closeDeviceModalBtn = document.getElementById('closeDeviceModalBtn');
+if (closeDeviceModalBtn && newDeviceModal) {
+  closeDeviceModalBtn.addEventListener('click', () => newDeviceModal.classList.add('hidden'));
+}
 
-document.getElementById('createDeviceForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const appName = document.getElementById('devAppName').value.trim();
-  const deviceName = document.getElementById('devDeviceName').value.trim();
-  const deviceType = document.getElementById('devDeviceType').value;
+const createDeviceForm = document.getElementById('createDeviceForm');
+if (createDeviceForm) {
+  createDeviceForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const appName = document.getElementById('devAppName')?.value.trim();
+    const deviceName = document.getElementById('devDeviceName')?.value.trim();
+    const deviceType = document.getElementById('devDeviceType')?.value;
 
-  const res = await fetchAdmin('/devices', {
-    method: 'POST',
-    body: JSON.stringify({ appName, deviceName, deviceType }),
+    const res = await fetchAdmin('/devices', {
+      method: 'POST',
+      body: JSON.stringify({ appName, deviceName, deviceType }),
+    });
+
+    if (res.success) {
+      if (newDeviceModal) newDeviceModal.classList.add('hidden');
+      alert(`Device registered!\nDevice Security Key: ${res.rawDeviceSecurityKey}\nSave it securely!`);
+      loadDevices();
+      loadOverview();
+    } else {
+      alert(res.error || 'Failed to register device');
+    }
   });
-
-  if (res.success) {
-    newDeviceModal.classList.add('hidden');
-    alert(`Device registered!\nDevice Security Key: ${res.rawDeviceSecurityKey}\nSave it securely!`);
-    loadDevices();
-    loadOverview();
-  } else {
-    alert(res.error || 'Failed to register device');
-  }
-});
+}
 
 // 7. Interactive Playground
 const playDbName = document.getElementById('playDbName');
 const playEndpoint = document.getElementById('playEndpoint');
 
-playDbName.addEventListener('input', () => {
-  playEndpoint.value = `/API/1/${playDbName.value.trim()}/query`;
-});
+if (playDbName && playEndpoint) {
+  playDbName.addEventListener('input', () => {
+    playEndpoint.value = `/API/1/${playDbName.value.trim()}/query`;
+  });
+}
 
 // Presets
-document.getElementById('presetSelect').addEventListener('click', () => {
-  document.getElementById('playRequestBody').value = JSON.stringify(
-    { query: 'SELECT * FROM products LIMIT 5;', params: [] },
-    null,
-    2
-  );
-});
+const presetSelect = document.getElementById('presetSelect');
+if (presetSelect) {
+  presetSelect.addEventListener('click', () => {
+    const bodyEl = document.getElementById('playRequestBody');
+    if (bodyEl) {
+      bodyEl.value = JSON.stringify(
+        { query: 'SELECT * FROM products LIMIT 5;', params: [] },
+        null,
+        2
+      );
+    }
+  });
+}
 
-document.getElementById('presetDDL').addEventListener('click', () => {
-  document.getElementById('playRequestBody').value = JSON.stringify(
-    { query: 'DROP TABLE products;', params: [] },
-    null,
-    2
-  );
-});
+const presetDDL = document.getElementById('presetDDL');
+if (presetDDL) {
+  presetDDL.addEventListener('click', () => {
+    const bodyEl = document.getElementById('playRequestBody');
+    if (bodyEl) {
+      bodyEl.value = JSON.stringify(
+        { query: 'DROP TABLE products;', params: [] },
+        null,
+        2
+      );
+    }
+  });
+}
 
-document.getElementById('presetSQLi').addEventListener('click', () => {
-  document.getElementById('playRequestBody').value = JSON.stringify(
-    { query: "SELECT * FROM products WHERE name = '' OR 1=1;", params: [] },
-    null,
-    2
-  );
-});
+const presetSQLi = document.getElementById('presetSQLi');
+if (presetSQLi) {
+  presetSQLi.addEventListener('click', () => {
+    const bodyEl = document.getElementById('playRequestBody');
+    if (bodyEl) {
+      bodyEl.value = JSON.stringify(
+        { query: "SELECT * FROM products WHERE name = '' OR 1=1;", params: [] },
+        null,
+        2
+      );
+    }
+  });
+}
 
-document.getElementById('sendPlaygroundBtn').addEventListener('click', async () => {
+const sendPlaygroundBtn = document.getElementById('sendPlaygroundBtn');
+if (sendPlaygroundBtn) {
+  sendPlaygroundBtn.addEventListener('click', async () => {
   const endpoint = playEndpoint.value.trim();
   const key = document.getElementById('playKey').value.trim();
   const ip = document.getElementById('playIP').value.trim();
@@ -630,7 +876,8 @@ document.getElementById('sendPlaygroundBtn').addEventListener('click', async () 
     metaEl.innerHTML = '<span class="text-rose-400">Network / Connection Error</span>';
     outputEl.textContent = err.message;
   }
-});
+  });
+}
 
 // Toast notification helper
 function showToast(message) {

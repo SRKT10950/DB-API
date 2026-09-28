@@ -38,9 +38,23 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Static Admin Dashboard assets
 const publicDir = path.join(__dirname, 'public');
 app.get('/admin/login', (req, res) => {
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
   res.sendFile(path.join(publicDir, 'login.html'));
 });
-app.use('/admin', express.static(publicDir));
+app.use(
+  '/admin',
+  express.static(publicDir, {
+    etag: false,
+    maxAge: 0,
+    setHeaders: (res) => {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+    },
+  })
+);
 
 // System Health & Metrics
 app.use(healthRouter);

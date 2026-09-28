@@ -3,9 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <title>DB API - PostgreSQL Gateway & Security Dashboard</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <link rel="stylesheet" href="/admin/styles.css">
+  <link rel="stylesheet" href="/admin/styles.css?v=2.2.1">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -536,7 +539,7 @@
   </div>
 
   <!-- Modal: Edit Access Permissions -->
-  <div id="editPermissionsModal" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+  <div id="editPermissionsModal" style="display: none;" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
     <div class="bg-dark-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl">
       <div class="flex items-center justify-between mb-2">
         <h3 class="text-base font-bold text-white flex items-center gap-2">
@@ -681,6 +684,6 @@
     DB API Gateway • Built for Local PostgreSQL Protection & Monitoring • db.mhservice.co.in
   </footer>
 
-  <script src="/admin/app.js"></script>
+  <script src="/admin/app.js?v=2.2.1"></script>
 </body>
 </html>

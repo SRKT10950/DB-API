@@ -251,8 +251,11 @@
     <div id="keysTab" class="tab-pane hidden">
       <div class="flex items-center justify-between mb-4">
         <div>
-          <h2 class="text-base font-bold text-white">Database API Keys</h2>
-          <p class="text-xs text-slate-400">Dedicated keys for each database with granular CRUD and DDL permissions.</p>
+          <h2 class="text-base font-bold text-white flex items-center gap-2">
+            <span>Database API Keys</span>
+            <span class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">PostgreSQL: db_admin</span>
+          </h2>
+          <p class="text-xs text-slate-400">Dedicated keys for each database with granular CRUD and DDL permissions, persisted in <code class="text-sky-400">db_admin</code>.</p>
         </div>
         <button id="openNewKeyModalBtn" class="px-3.5 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold shadow transition flex items-center gap-1.5">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
@@ -284,8 +287,11 @@
     <div id="devicesTab" class="tab-pane hidden">
       <div class="flex items-center justify-between mb-4">
         <div>
-          <h2 class="text-base font-bold text-white">Device Security & Device Keys</h2>
-          <p class="text-xs text-slate-400">Manage registered devices and pre-shared Device Security Keys.</p>
+          <h2 class="text-base font-bold text-white flex items-center gap-2">
+            <span>Device Security & Device Keys</span>
+            <span class="text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-mono">PostgreSQL: db_device</span>
+          </h2>
+          <p class="text-xs text-slate-400">Manage registered devices and pre-shared Device Security Keys. Auto-provisions and returns new device keys on user/account creation.</p>
         </div>
         <button id="openNewDeviceModalBtn" class="px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow transition flex items-center gap-1.5">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>

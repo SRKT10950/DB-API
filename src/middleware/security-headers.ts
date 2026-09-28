@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import { metadataStore, ApiKeyRecord, DeviceRecord } from '../services/metadata-store';
 import { KeyService } from '../services/key-service';
+import { DbStorageService } from '../services/db-storage';
 
 export interface SecurityContext {
   keyRecord: ApiKeyRecord;
@@ -14,6 +15,8 @@ export interface SecurityContext {
   actualIp: string;
   deviceRecord?: DeviceRecord;
   startTime: number;
+  autoProvisionDevice?: boolean;
+  targetUserAccountTable?: string;
 }
 
 // Extend Express Request
@@ -60,7 +63,17 @@ export function securityHeadersMiddleware(req: Request, res: Response, next: Nex
 
   const targetDbName = req.params.dbName || '';
 
-  // 1. Verify all 7 required headers are present
+  // Detect if operation is an insert/create/update on a user/account table
+  const isWriteMethod = req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH';
+  const tableMatch = req.path.match(/^\/tables\/([a-zA-Z0-9_]+)/i);
+  const routeTableName = tableMatch ? tableMatch[1] : undefined;
+  const rawQuery = typeof req.body?.query === 'string' ? req.body.query : undefined;
+  const queryTableName = rawQuery ? DbStorageService.extractUserAccountTableFromQuery(rawQuery) : null;
+  const targetUserAccountTable = routeTableName || queryTableName || undefined;
+  const isUserAccountTable = targetUserAccountTable ? DbStorageService.isUserAccountTable(targetUserAccountTable) : false;
+  const isUserAccountOnboarding = isWriteMethod && isUserAccountTable;
+
+  // 1. Verify required headers are present
   const missingHeaders: string[] = [];
   if (!key) missingHeaders.push('Key');
   if (!ip) missingHeaders.push('IP');
@@ -68,7 +81,10 @@ export function securityHeadersMiddleware(req: Request, res: Response, next: Nex
   if (!location) missingHeaders.push('Location');
   if (!deviceType) missingHeaders.push('DeviceType');
   if (!appName) missingHeaders.push('AppName');
-  if (!deviceSecurityKey) missingHeaders.push('Device Security Key');
+  // Allow missing Device Security Key ONLY during user/account onboarding
+  if (!deviceSecurityKey && !isUserAccountOnboarding) {
+    missingHeaders.push('Device Security Key');
+  }
 
   if (missingHeaders.length > 0) {
     metadataStore.addAuditLog({
@@ -211,53 +227,70 @@ export function securityHeadersMiddleware(req: Request, res: Response, next: Nex
   }
 
   // 6. Validate Device & Device Security Key
-  const devKeyHash = KeyService.hashKey(deviceSecurityKey!);
+  let autoProvisionDevice = false;
   let deviceRecord = metadataStore.findDevice(appName!, deviceName!, deviceType!);
 
-  if (deviceRecord) {
-    if (deviceRecord.securityKeyHash !== devKeyHash) {
-      metadataStore.addAuditLog({
-        id: `log_${crypto.randomBytes(6).toString('hex')}`,
-        timestamp: new Date().toISOString(),
-        keyId: keyRecord.id,
-        appName: appName!,
-        dbName: targetDbName,
-        endpoint: req.originalUrl,
-        method: req.method,
-        deviceName: deviceName!,
-        deviceType: deviceType!,
-        location: location!,
-        reportedIp: ip!,
-        actualIp,
-        operationType: 'AUTH_FAILED',
-        querySummary: `Rejected: Device Security Key mismatch for device '${deviceName}'`,
-        durationMs: Math.round(performance.now() - startTime),
-        statusCode: 401,
-        threatLevel: 'CRITICAL',
-        threatReason: 'Device Security Key mismatch (Potential device impersonation)',
-        rowCount: null,
-      });
+  if (deviceSecurityKey) {
+    const devKeyHash = KeyService.hashKey(deviceSecurityKey);
 
-      return res.status(401).json({
-        success: false,
-        error: 'Unauthorized: Invalid Device Security Key for specified Device',
-      });
+    if (deviceRecord) {
+      if (deviceRecord.securityKeyHash !== devKeyHash) {
+        if (isUserAccountOnboarding) {
+          // Device key is not found / mismatched on user/account creation -> auto-provision
+          autoProvisionDevice = true;
+        } else {
+          metadataStore.addAuditLog({
+            id: `log_${crypto.randomBytes(6).toString('hex')}`,
+            timestamp: new Date().toISOString(),
+            keyId: keyRecord.id,
+            appName: appName!,
+            dbName: targetDbName,
+            endpoint: req.originalUrl,
+            method: req.method,
+            deviceName: deviceName!,
+            deviceType: deviceType!,
+            location: location!,
+            reportedIp: ip!,
+            actualIp,
+            operationType: 'AUTH_FAILED',
+            querySummary: `Rejected: Device Security Key mismatch for device '${deviceName}'`,
+            durationMs: Math.round(performance.now() - startTime),
+            statusCode: 401,
+            threatLevel: 'CRITICAL',
+            threatReason: 'Device Security Key mismatch (Potential device impersonation)',
+            rowCount: null,
+          });
+
+          return res.status(401).json({
+            success: false,
+            error: 'Unauthorized: Invalid Device Security Key for specified Device',
+          });
+        }
+      } else {
+        // Valid device key matched
+        deviceRecord.lastSeenAt = new Date().toISOString();
+      }
+    } else {
+      if (isUserAccountOnboarding) {
+        // Device record not found on user/account creation -> auto-provision
+        autoProvisionDevice = true;
+      } else {
+        // Auto-register first time device is verified with its security key
+        const regResult = KeyService.registerDevice({
+          appName: appName!,
+          deviceName: deviceName!,
+          deviceType: deviceType!,
+        });
+        // Replace hash with caller's hash
+        regResult.deviceRecord.securityKeyHash = devKeyHash;
+        regResult.deviceRecord.securityKeyPrefix = deviceSecurityKey.substring(0, 10) + '...';
+        metadataStore.saveDevice(regResult.deviceRecord);
+        deviceRecord = regResult.deviceRecord;
+      }
     }
-
-    // Update last seen
-    deviceRecord.lastSeenAt = new Date().toISOString();
-  } else {
-    // Auto-register first time device is verified with its security key
-    const regResult = KeyService.registerDevice({
-      appName: appName!,
-      deviceName: deviceName!,
-      deviceType: deviceType!,
-    });
-    // Replace hash with caller's hash
-    regResult.deviceRecord.securityKeyHash = devKeyHash;
-    regResult.deviceRecord.securityKeyPrefix = deviceSecurityKey!.substring(0, 10) + '...';
-    metadataStore.saveDevice(regResult.deviceRecord);
-    deviceRecord = regResult.deviceRecord;
+  } else if (isUserAccountOnboarding) {
+    // Missing device security key during user/account creation -> trigger auto-provisioning
+    autoProvisionDevice = true;
   }
 
   // 7. Check IP Whitelist if configured on key
@@ -308,8 +341,10 @@ export function securityHeadersMiddleware(req: Request, res: Response, next: Nex
     location: location!,
     reportedIp: ip!,
     actualIp,
-    deviceRecord,
+    deviceRecord: autoProvisionDevice ? undefined : deviceRecord,
     startTime,
+    autoProvisionDevice,
+    targetUserAccountTable,
   };
 
   next();

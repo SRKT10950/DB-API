@@ -9,6 +9,7 @@ import apiV1Router from './routes/api-v1';
 import adminApiRouter from './routes/admin-api';
 import healthRouter from './routes/health';
 import { PgPoolManager } from './services/pg-pool';
+import { DbStorageService } from './services/db-storage';
 
 const app = express();
 
@@ -85,6 +86,11 @@ if (require.main === module) {
     console.log(`  Target PostgreSQL Host: ${config.pg.host}:${config.pg.port}`);
     console.log(`  Admin Dashboard: http://localhost:${config.port}/admin`);
     console.log(`=======================================================`);
+
+    // Initialize persistent db_admin and db_device tables in PostgreSQL
+    DbStorageService.initSystemTables().catch((err) => {
+      console.warn('[DbStorageService] Startup initialization deferred:', err.message);
+    });
   });
 }
 

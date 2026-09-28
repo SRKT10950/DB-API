@@ -247,6 +247,9 @@ export class MetadataStore {
     if (!key) return false;
     key.status = 'revoked';
     this.scheduleSave();
+    import('./db-storage').then(({ DbStorageService }) => {
+      DbStorageService.revokeApiKey(id).catch(() => {});
+    });
     return true;
   }
 
@@ -280,6 +283,9 @@ export class MetadataStore {
     if (!dev) return false;
     dev.status = 'revoked';
     this.scheduleSave();
+    import('./db-storage').then(({ DbStorageService }) => {
+      DbStorageService.revokeDeviceKey(id).catch(() => {});
+    });
     return true;
   }
 

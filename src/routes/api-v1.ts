@@ -5,6 +5,7 @@ import { ThreatDetector } from '../services/threat-detector';
 import { KeyService } from '../services/key-service';
 import { PgPoolManager } from '../services/pg-pool';
 import { metadataStore, AuditLogRecord } from '../services/metadata-store';
+import { DbStorageService } from '../services/db-storage';
 
 const router = Router({ mergeParams: true });
 
@@ -111,10 +112,50 @@ router.post('/query', async (req: Request, res: Response) => {
     }
   }
 
-  // 3. Execute query on PostgreSQL
+  // 3. Handle Auto-Provisioning for user/account tables if device key not found
+  let generatedDeviceKey: string | null = null;
+  let finalQuery = query;
+  let finalParams = Array.isArray(params) ? [...params] : [];
+
+  const userAccountTable =
+    ctx.targetUserAccountTable || DbStorageService.extractUserAccountTableFromQuery(query);
+  const isUserAccountOp =
+    Boolean(userAccountTable) &&
+    (analysis.detectedOperations.includes('INSERT') || analysis.detectedOperations.includes('UPDATE'));
+
+  if (isUserAccountOp && (ctx.autoProvisionDevice || !ctx.deviceRecord)) {
+    const provisionResult = await DbStorageService.autoProvisionDevice({
+      appName: ctx.appName,
+      deviceName: ctx.deviceName,
+      deviceType: ctx.deviceType,
+      location: ctx.location,
+      ipAddress: ctx.reportedIp,
+      targetDbName: ctx.dbName,
+    });
+    generatedDeviceKey = provisionResult.rawDeviceKey;
+    ctx.deviceRecord = provisionResult.record;
+
+    // Ensure device_key column exists
+    try {
+      const pool = PgPoolManager.getPool(ctx.dbName);
+      await pool.query(
+        `ALTER TABLE "${userAccountTable}" ADD COLUMN IF NOT EXISTS device_key VARCHAR(255);`
+      );
+    } catch (e: any) {}
+
+    // Inject into query & params
+    const injected = DbStorageService.injectDeviceKeyIntoSql(
+      finalQuery,
+      finalParams,
+      generatedDeviceKey
+    );
+    finalQuery = injected.modifiedQuery;
+    finalParams = injected.modifiedParams;
+  }
+
+  // 4. Execute query on PostgreSQL
   try {
-    const queryParams = Array.isArray(params) ? params : [];
-    const result = await PgPoolManager.executeQuery(ctx.dbName, query, queryParams);
+    const result = await PgPoolManager.executeQuery(ctx.dbName, finalQuery, finalParams);
 
     recordAudit(
       ctx,
@@ -127,8 +168,15 @@ router.post('/query', async (req: Request, res: Response) => {
       result.rowCount
     );
 
+    if (generatedDeviceKey) {
+      res.setHeader('Device-Security-Key', generatedDeviceKey);
+    }
+
     return res.status(200).json({
       success: true,
+      ...(generatedDeviceKey
+        ? { deviceKey: generatedDeviceKey, device_key: generatedDeviceKey }
+        : {}),
       command: result.command,
       rowCount: result.rowCount,
       durationMs: result.durationMs,
@@ -254,6 +302,30 @@ router.post('/tables/:tableName', async (req: Request, res: Response) => {
     return res.status(403).json({ success: false, error: perm.reason });
   }
 
+  let generatedDeviceKey: string | null = null;
+  const isUserAccountTable = DbStorageService.isUserAccountTable(tableName);
+
+  if (isUserAccountTable && (ctx.autoProvisionDevice || !ctx.deviceRecord)) {
+    const provisionResult = await DbStorageService.autoProvisionDevice({
+      appName: ctx.appName,
+      deviceName: ctx.deviceName,
+      deviceType: ctx.deviceType,
+      location: ctx.location,
+      ipAddress: ctx.reportedIp,
+      targetDbName: ctx.dbName,
+    });
+    generatedDeviceKey = provisionResult.rawDeviceKey;
+    ctx.deviceRecord = provisionResult.record;
+
+    // Inject device_key into payload and ensure column exists in target table
+    req.body = await DbStorageService.injectDeviceKeyIntoPayload(
+      ctx.dbName,
+      tableName,
+      req.body,
+      generatedDeviceKey
+    );
+  }
+
   const payload = req.body;
   const items = Array.isArray(payload) ? payload : [payload];
 
@@ -286,8 +358,13 @@ router.post('/tables/:tableName', async (req: Request, res: Response) => {
     const result = await PgPoolManager.executeQuery(ctx.dbName, sql, flatParams);
     recordAudit(ctx, req, 'INSERT', `INSERT INTO "${tableName}"`, 201, 'NONE', null, result.rowCount);
 
+    if (generatedDeviceKey) {
+      res.setHeader('Device-Security-Key', generatedDeviceKey);
+    }
+
     return res.status(201).json({
       success: true,
+      ...(generatedDeviceKey ? { deviceKey: generatedDeviceKey, device_key: generatedDeviceKey } : {}),
       insertedCount: result.rowCount,
       data: result.rows,
     });
@@ -314,6 +391,28 @@ async function handleUpdate(req: Request, res: Response) {
   const perm = KeyService.checkPermission(ctx.keyRecord, 'UPDATE');
   if (!perm.allowed) {
     return res.status(403).json({ success: false, error: perm.reason });
+  }
+
+  let generatedDeviceKey: string | null = null;
+  const isUserAccountTable = DbStorageService.isUserAccountTable(tableName);
+
+  if (isUserAccountTable && (ctx.autoProvisionDevice || !ctx.deviceRecord)) {
+    const provisionResult = await DbStorageService.autoProvisionDevice({
+      appName: ctx.appName,
+      deviceName: ctx.deviceName,
+      deviceType: ctx.deviceType,
+      location: ctx.location,
+      ipAddress: ctx.reportedIp,
+      targetDbName: ctx.dbName,
+    });
+    generatedDeviceKey = provisionResult.rawDeviceKey;
+    ctx.deviceRecord = provisionResult.record;
+
+    // Ensure column exists and inject into updateFields
+    await DbStorageService.injectDeviceKeyIntoPayload(ctx.dbName, tableName, req.body, generatedDeviceKey);
+    if (typeof req.body === 'object' && req.body !== null) {
+      req.body.device_key = generatedDeviceKey;
+    }
   }
 
   const updateFields = req.body;
@@ -357,8 +456,13 @@ async function handleUpdate(req: Request, res: Response) {
     const result = await PgPoolManager.executeQuery(ctx.dbName, sql, params);
     recordAudit(ctx, req, 'UPDATE', `UPDATE "${tableName}"`, 200, 'NONE', null, result.rowCount);
 
+    if (generatedDeviceKey) {
+      res.setHeader('Device-Security-Key', generatedDeviceKey);
+    }
+
     return res.json({
       success: true,
+      ...(generatedDeviceKey ? { deviceKey: generatedDeviceKey, device_key: generatedDeviceKey } : {}),
       updatedCount: result.rowCount,
       data: result.rows,
     });

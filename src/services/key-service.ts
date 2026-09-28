@@ -71,6 +71,10 @@ export class KeyService {
     };
 
     metadataStore.saveKey(record);
+    // Persist to PostgreSQL db_admin table
+    import('./db-storage').then(({ DbStorageService }) => {
+      DbStorageService.persistApiKey(record, rawKey).catch((e) => console.warn(e.message));
+    });
 
     return { rawKey, record };
   }
@@ -99,6 +103,10 @@ export class KeyService {
     };
 
     metadataStore.saveDevice(deviceRecord);
+    // Persist to PostgreSQL db_device table
+    import('./db-storage').then(({ DbStorageService }) => {
+      DbStorageService.persistDeviceKey(deviceRecord, rawDeviceSecurityKey).catch((e) => console.warn(e.message));
+    });
 
     return { rawDeviceSecurityKey, deviceRecord };
   }

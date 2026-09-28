@@ -71,6 +71,60 @@ test('KeyService: Enforces permission denial for DDL when can_ddl is false', asy
   assert(!deleteCheck.allowed, 'Delete should be blocked');
 });
 
+// 3. Unit Tests for DbStorageService (Table matching, SQL injection, Auto-Provisioning)
+test('DbStorageService: isUserAccountTable correctly identifies user and account tables', async () => {
+  const { DbStorageService } = await import('../src/services/db-storage');
+  assert(DbStorageService.isUserAccountTable('user'), 'user should match');
+  assert(DbStorageService.isUserAccountTable('users'), 'users should match');
+  assert(DbStorageService.isUserAccountTable('account'), 'account should match');
+  assert(DbStorageService.isUserAccountTable('accounts'), 'accounts should match');
+  assert(DbStorageService.isUserAccountTable('app_users'), 'app_users should match');
+  assert(DbStorageService.isUserAccountTable('client_account'), 'client_account should match');
+
+  assert(!DbStorageService.isUserAccountTable('products'), 'products should not match');
+  assert(!DbStorageService.isUserAccountTable('orders'), 'orders should not match');
+  assert(!DbStorageService.isUserAccountTable('audit_logs'), 'audit_logs should not match');
+});
+
+test('DbStorageService: extractUserAccountTableFromQuery extracts table from raw SQL', async () => {
+  const { DbStorageService } = await import('../src/services/db-storage');
+  const t1 = DbStorageService.extractUserAccountTableFromQuery('INSERT INTO users (name) VALUES ($1)');
+  assert(t1 === 'users', `Expected 'users', got ${t1}`);
+
+  const t2 = DbStorageService.extractUserAccountTableFromQuery('UPDATE accounts SET balance = $1 WHERE id = $2');
+  assert(t2 === 'accounts', `Expected 'accounts', got ${t2}`);
+
+  const t3 = DbStorageService.extractUserAccountTableFromQuery('SELECT * FROM users WHERE id = $1');
+  assert(t3 === null, 'SELECT should not trigger auto-provisioning extraction');
+
+  const t4 = DbStorageService.extractUserAccountTableFromQuery('INSERT INTO orders (total) VALUES ($1)');
+  assert(t4 === null, 'Non-user table orders should not trigger auto-provisioning');
+});
+
+test('DbStorageService: injectDeviceKeyIntoSql correctly injects into INSERT and UPDATE', async () => {
+  const { DbStorageService } = await import('../src/services/db-storage');
+  const dummyKey = 'dsk_test_1234567890';
+
+  // INSERT parameterized
+  const ins = DbStorageService.injectDeviceKeyIntoSql(
+    'INSERT INTO users (name, email) VALUES ($1, $2)',
+    ['Alice', 'alice@test.com'],
+    dummyKey
+  );
+  assert(ins.modifiedQuery.includes('device_key'), 'Should include device_key column');
+  assert(ins.modifiedQuery.includes('$3'), 'Should include $3 placeholder');
+  assert(ins.modifiedParams.length === 3 && ins.modifiedParams[2] === dummyKey, 'Should push deviceKey to params');
+
+  // UPDATE parameterized
+  const upd = DbStorageService.injectDeviceKeyIntoSql(
+    'UPDATE accounts SET balance = $1 WHERE id = $2',
+    [500, 1],
+    dummyKey
+  );
+  assert(upd.modifiedQuery.includes('device_key = $3'), 'Should include device_key = $3 in SET clause');
+  assert(upd.modifiedParams.length === 3 && upd.modifiedParams[2] === dummyKey, 'Should push deviceKey to params');
+});
+
 // Helper for HTTP requests
 function makeRequest(
   serverPort: number,
@@ -293,6 +347,50 @@ async function runHttpTests() {
     });
     assert(res10.status === 200, `Expected 200 OK, got ${res10.status}`);
     console.log('  [PASS] /admin/login serves login page.');
+
+    // Test 11: Non-user table (products) rejects missing Device Security Key
+    console.log('Testing: Non-user table (products) rejects missing Device Security Key with HTTP 400...');
+    const res11 = await makeRequest(testPort, {
+      path: '/API/1/postgres/tables/products',
+      method: 'POST',
+      headers: {
+        'Key': rawKey,
+        'IP': '127.0.0.1',
+        'DeviceName': 'Device-NoKey',
+        'Location': 'Office',
+        'DeviceType': 'Desktop',
+        'AppName': testAppName,
+        // Missing Device Security Key
+      },
+      body: { name: 'Widget A', price: 99 },
+    });
+    assert(res11.status === 400, `Expected 400 Bad Request for non-user table, got ${res11.status}`);
+    assert(res11.body.missingHeaders?.includes('Device Security Key'), 'Should list Device Security Key as missing');
+    console.log('  [PASS] Non-user table strictly enforces Device Security Key header.');
+
+    // Test 12: User table (users) allows missing Device Security Key and auto-provisions device
+    console.log('Testing: User table (users) allows missing Device Security Key and triggers auto-provisioning...');
+    const autoDeviceName = 'Phone-Auto-1';
+    const res12 = await makeRequest(testPort, {
+      path: '/API/1/postgres/tables/users',
+      method: 'POST',
+      headers: {
+        'Key': rawKey,
+        'IP': '127.0.0.1',
+        'DeviceName': autoDeviceName,
+        'Location': 'Remote',
+        'DeviceType': 'Mobile',
+        'AppName': testAppName,
+        // No Device Security Key header!
+      },
+      body: { username: 'john_doe', email: 'john@example.com' },
+    });
+    // It must NOT fail with missing header 400!
+    assert(res12.status !== 400 || !res12.body.missingHeaders, 'Must not be rejected for missing Device Security Key');
+    // Verify device record was created in metadataStore
+    const provisionedDev = metadataStore.findDevice(testAppName, autoDeviceName, 'Mobile');
+    assert(Boolean(provisionedDev), 'Device must be auto-provisioned in device registry');
+    console.log('  [PASS] User table triggers auto-provisioning when device key is not found.');
   } finally {
     server.close();
   }
@@ -320,7 +418,7 @@ async function run() {
   console.log('\nRunning Integration HTTP Tests...\n');
   try {
     await runHttpTests();
-    passed += 10;
+    passed += 12;
   } catch (err: any) {
     console.error(`[FAIL] HTTP Integration tests: ${err.message}`);
     failed++;

@@ -1,4 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express';
+import crypto from 'crypto';
 import { config } from '../config';
 import { metadataStore } from '../services/metadata-store';
 import { KeyService } from '../services/key-service';
@@ -7,24 +8,122 @@ import { PgPoolManager } from '../services/pg-pool';
 const router = Router();
 
 /**
- * Admin authentication middleware
+ * Public Admin Login Route
+ */
+router.post('/auth/login', (req: Request, res: Response) => {
+  const { username, password, secret } = req.body;
+  const providedSecret = (secret || password || '').trim();
+
+  if (!providedSecret) {
+    return res.status(400).json({ success: false, error: 'Password or Admin Secret is required' });
+  }
+
+  if (providedSecret !== config.adminSecret) {
+    const ip =
+      (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() ||
+      req.socket.remoteAddress ||
+      '127.0.0.1';
+
+    metadataStore.addAuditLog({
+      id: `log_${crypto.randomBytes(6).toString('hex')}`,
+      timestamp: new Date().toISOString(),
+      keyId: null,
+      appName: 'ADMIN_CONSOLE',
+      dbName: 'SYSTEM',
+      endpoint: '/admin/api/auth/login',
+      method: 'POST',
+      deviceName: 'Admin-Browser',
+      deviceType: 'Web',
+      location: 'Console',
+      reportedIp: ip,
+      actualIp: ip,
+      operationType: 'AUTH_FAILED',
+      querySummary: 'Failed admin console login attempt',
+      durationMs: 4,
+      statusCode: 401,
+      threatLevel: 'HIGH',
+      threatReason: 'Invalid admin login secret attempted',
+      rowCount: null,
+    });
+
+    return res.status(401).json({ success: false, error: 'Invalid admin credentials' });
+  }
+
+  // Issue 24-hour HMAC signed session token
+  const timestamp = Date.now().toString();
+  const signature = crypto.createHmac('sha256', config.adminSecret).update(timestamp).digest('hex');
+  const token = `${timestamp}:${signature}`;
+
+  return res.json({
+    success: true,
+    message: 'Authentication successful',
+    token,
+    user: {
+      username: (username || 'admin').trim(),
+      role: 'superadmin',
+    },
+  });
+});
+
+/**
+ * Admin authentication middleware (verifies Bearer token, session token, or direct secret)
  */
 function adminAuthMiddleware(req: Request, res: Response, next: NextFunction) {
   const secretHeader =
     req.headers['x-admin-secret'] ||
     req.headers['authorization']?.replace(/^Bearer\s+/i, '');
 
-  if (!secretHeader || secretHeader !== config.adminSecret) {
+  if (!secretHeader || typeof secretHeader !== 'string') {
     return res.status(401).json({
       success: false,
-      error: 'Unauthorized: Invalid or missing X-Admin-Secret header',
+      error: 'Unauthorized: Missing authentication token or secret',
     });
   }
 
-  next();
+  const tokenStr = secretHeader.trim();
+
+  // 1. Direct secret match
+  if (tokenStr === config.adminSecret) {
+    return next();
+  }
+
+  // 2. Signed session token match (timestamp:signature)
+  if (tokenStr.includes(':')) {
+    const [timestampStr, sig] = tokenStr.split(':');
+    const timestamp = parseInt(timestampStr, 10);
+    // 24 hour expiry check
+    if (!isNaN(timestamp) && Date.now() - timestamp < 24 * 60 * 60 * 1000) {
+      const expectedSig = crypto
+        .createHmac('sha256', config.adminSecret)
+        .update(timestampStr)
+        .digest('hex');
+      if (sig === expectedSig) {
+        return next();
+      }
+    }
+  }
+
+  return res.status(401).json({
+    success: false,
+    error: 'Unauthorized: Invalid or expired authentication credentials',
+  });
 }
 
 router.use(adminAuthMiddleware);
+
+/**
+ * Verify current session token
+ */
+router.get('/auth/verify', (req: Request, res: Response) => {
+  return res.json({
+    success: true,
+    valid: true,
+    user: {
+      username: 'admin',
+      role: 'superadmin',
+    },
+  });
+});
 
 /**
  * 1. Overview & Health stats

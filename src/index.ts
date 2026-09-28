@@ -36,6 +36,9 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Static Admin Dashboard assets
 const publicDir = path.join(__dirname, 'public');
+app.get('/admin/login', (req, res) => {
+  res.sendFile(path.join(publicDir, 'login.html'));
+});
 app.use('/admin', express.static(publicDir));
 
 // System Health & Metrics

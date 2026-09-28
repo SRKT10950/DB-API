@@ -1,7 +1,8 @@
 // DB API Dashboard Client Script
 
 const state = {
-  adminSecret: localStorage.getItem('dbapi_admin_secret') || 'mh_admin_super_secret_key_2026',
+  authToken: localStorage.getItem('dbapi_auth_token') || localStorage.getItem('dbapi_admin_secret'),
+  user: null,
   stats: {},
   keys: [],
   devices: [],
@@ -9,38 +10,81 @@ const state = {
   databases: [],
 };
 
-// DOM Elements
-const adminSecretInput = document.getElementById('adminSecretInput');
-const saveSecretBtn = document.getElementById('saveSecretBtn');
-const pgStatusPill = document.getElementById('pgStatusPill');
+// Check if user is cached
+try {
+  const cachedUser = localStorage.getItem('dbapi_admin_user');
+  if (cachedUser) state.user = JSON.parse(cachedUser);
+} catch (e) {}
 
-// Initialize
-document.addEventListener('DOMContentLoaded', () => {
-  adminSecretInput.value = state.adminSecret;
+// DOM Elements
+const pgStatusPill = document.getElementById('pgStatusPill');
+const logoutBtn = document.getElementById('logoutBtn');
+const adminUsernameBadge = document.getElementById('adminUsernameBadge');
+
+// Authentication Check on Load
+document.addEventListener('DOMContentLoaded', async () => {
+  if (!state.authToken) {
+    window.location.replace('/admin/login');
+    return;
+  }
+
+  // Verify session validity
+  try {
+    const verifyRes = await fetch('/admin/api/auth/verify', {
+      headers: {
+        'Authorization': 'Bearer ' + state.authToken,
+        'X-Admin-Secret': state.authToken,
+      },
+    });
+    if (!verifyRes.ok) {
+      localStorage.removeItem('dbapi_auth_token');
+      localStorage.removeItem('dbapi_admin_secret');
+      localStorage.removeItem('dbapi_admin_user');
+      window.location.replace('/admin/login');
+      return;
+    }
+  } catch (err) {
+    console.warn('Could not verify session with server:', err);
+  }
+
+  // Display user badge
+  if (adminUsernameBadge && state.user && state.user.username) {
+    adminUsernameBadge.textContent = state.user.username;
+  }
+
+  // Bind Logout button
+  if (logoutBtn) {
+    logoutBtn.addEventListener('click', () => {
+      localStorage.removeItem('dbapi_auth_token');
+      localStorage.removeItem('dbapi_admin_secret');
+      localStorage.removeItem('dbapi_admin_user');
+      window.location.replace('/admin/login');
+    });
+  }
+
   setupTabs();
-  setupEventListeners();
   loadAll();
   setInterval(loadOverview, 4000);
 });
 
-// Admin Secret Management
-saveSecretBtn.addEventListener('click', () => {
-  state.adminSecret = adminSecretInput.value.trim();
-  localStorage.setItem('dbapi_admin_secret', state.adminSecret);
-  showToast('Admin Secret Saved!');
-  loadAll();
-});
-
-// Fetch wrapper with admin secret
+// Fetch wrapper with authentication headers
 async function fetchAdmin(endpoint, options = {}) {
   const headers = {
     'Content-Type': 'application/json',
-    'X-Admin-Secret': state.adminSecret,
+    'Authorization': 'Bearer ' + state.authToken,
+    'X-Admin-Secret': state.authToken,
     ...(options.headers || {}),
   };
 
   try {
     const res = await fetch(`/admin/api${endpoint}`, { ...options, headers });
+    if (res.status === 401) {
+      localStorage.removeItem('dbapi_auth_token');
+      localStorage.removeItem('dbapi_admin_secret');
+      localStorage.removeItem('dbapi_admin_user');
+      window.location.replace('/admin/login');
+      return { success: false, error: 'Session expired' };
+    }
     return await res.json();
   } catch (err) {
     console.error('Fetch error:', err);

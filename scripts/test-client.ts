@@ -250,6 +250,49 @@ async function runHttpTests() {
     });
     assert(res6.status === 200 || res6.status === 503, 'Health endpoint responds');
     console.log('  [PASS] /health endpoint responds.');
+
+    // Test 7: Admin Login with Invalid Secret (401)
+    console.log('Testing: /admin/api/auth/login with invalid secret...');
+    const res7 = await makeRequest(testPort, {
+      path: '/admin/api/auth/login',
+      method: 'POST',
+      body: { username: 'admin', secret: 'wrong_secret_123' },
+    });
+    assert(res7.status === 401, `Expected 401 Unauthorized, got ${res7.status}`);
+    console.log('  [PASS] Admin login rejects invalid credentials.');
+
+    // Test 8: Admin Login with Valid Secret (200 + Token)
+    console.log('Testing: /admin/api/auth/login with valid secret...');
+    const res8 = await makeRequest(testPort, {
+      path: '/admin/api/auth/login',
+      method: 'POST',
+      body: { username: 'admin', secret: 'mh_admin_super_secret_key_2026' },
+    });
+    assert(res8.status === 200, `Expected 200 OK, got ${res8.status}`);
+    assert(typeof res8.body.token === 'string' && res8.body.token.includes(':'), 'Should return signed token');
+    console.log('  [PASS] Admin login succeeds and returns signed session token.');
+
+    // Test 9: Verify Session Token (200)
+    console.log('Testing: /admin/api/auth/verify with session token...');
+    const res9 = await makeRequest(testPort, {
+      path: '/admin/api/auth/verify',
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${res8.body.token}`,
+      },
+    });
+    assert(res9.status === 200, `Expected 200 OK, got ${res9.status}`);
+    assert(res9.body.valid === true, 'Session token should be valid');
+    console.log('  [PASS] Session token verified successfully.');
+
+    // Test 10: Admin Login Page Route (200)
+    console.log('Testing: GET /admin/login serves login page...');
+    const res10 = await makeRequest(testPort, {
+      path: '/admin/login',
+      method: 'GET',
+    });
+    assert(res10.status === 200, `Expected 200 OK, got ${res10.status}`);
+    console.log('  [PASS] /admin/login serves login page.');
   } finally {
     server.close();
   }
@@ -277,7 +320,7 @@ async function run() {
   console.log('\nRunning Integration HTTP Tests...\n');
   try {
     await runHttpTests();
-    passed += 6;
+    passed += 10;
   } catch (err: any) {
     console.error(`[FAIL] HTTP Integration tests: ${err.message}`);
     failed++;

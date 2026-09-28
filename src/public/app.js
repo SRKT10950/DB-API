@@ -161,14 +161,18 @@ async function loadOverview() {
 }
 
 // 2. Keys
+let currentKeysMap = new Map();
+
 async function loadKeys() {
   const data = await fetchAdmin('/keys');
   if (!data.success) return;
 
   const tbody = document.getElementById('keysTableBody');
   tbody.innerHTML = '';
+  currentKeysMap.clear();
 
   data.keys.forEach((key) => {
+    currentKeysMap.set(key.id, key);
     const tr = document.createElement('tr');
     tr.className = 'hover:bg-slate-800/40 transition font-mono text-xs';
 
@@ -190,22 +194,29 @@ async function loadKeys() {
       <td class="py-3 px-3 text-sky-400 font-semibold">${escapeHtml(key.dbName)}</td>
       <td class="py-3 px-3 text-slate-400">${escapeHtml(key.keyPrefix)}</td>
       <td class="py-3 px-3">
-        <div class="flex flex-wrap gap-1">
+        <div onclick="openEditPermissionsModal('${key.id}')" class="flex flex-wrap items-center gap-1 cursor-pointer hover:opacity-85 transition group" title="Click to edit permissions">
           ${badge('C:Insert', p.can_create, 'emerald')}
           ${badge('R:Select', p.can_read, 'emerald')}
           ${badge('U:Update', p.can_update, 'emerald')}
           ${badge('D:Delete', p.can_delete, 'amber')}
           ${badge('DDL', p.can_ddl, 'rose')}
+          <span class="text-[10px] text-sky-400/80 group-hover:text-sky-300 group-hover:underline ml-1 font-sans">Edit</span>
         </div>
       </td>
       <td class="py-3 px-3">${statusBadge}</td>
       <td class="py-3 px-3 text-slate-400">${key.lastUsedAt ? new Date(key.lastUsedAt).toLocaleTimeString() : 'Never'}</td>
       <td class="py-3 px-3 text-right">
-        ${
-          key.status === 'active'
-            ? `<button onclick="revokeKey('${key.id}')" class="text-xs text-rose-400 hover:text-rose-300 font-sans">Revoke</button>`
-            : '<span class="text-slate-600">-</span>'
-        }
+        <div class="flex items-center justify-end gap-1.5 font-sans">
+          <button onclick="openEditPermissionsModal('${key.id}')" class="px-2 py-1 rounded bg-slate-800 hover:bg-sky-950/60 hover:text-sky-300 text-sky-400 text-xs transition border border-slate-700 hover:border-sky-500/30 font-medium flex items-center gap-1">
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+            <span>Edit</span>
+          </button>
+          ${
+            key.status === 'active'
+              ? `<button onclick="revokeKey('${key.id}')" class="px-2 py-1 rounded bg-rose-950/30 hover:bg-rose-950/60 text-rose-400 hover:text-rose-300 text-xs transition border border-rose-500/20 font-medium">Revoke</button>`
+              : '<span class="text-slate-600 px-2 py-1">-</span>'
+          }
+        </div>
       </td>
     `;
     tbody.appendChild(tr);
@@ -431,6 +442,79 @@ document.getElementById('copyKeyBtn').addEventListener('click', () => {
 
 document.getElementById('dismissKeyCreatedModalBtn').addEventListener('click', () => {
   document.getElementById('keyCreatedModal').classList.add('hidden');
+});
+
+// Edit Permissions Modal
+window.openEditPermissionsModal = function (id) {
+  const key = currentKeysMap.get(id);
+  if (!key) return;
+
+  document.getElementById('editKeyId').value = key.id;
+  document.getElementById('editKeyAppName').textContent = key.appName;
+  document.getElementById('editKeyDbName').textContent = key.dbName;
+  document.getElementById('editKeyPrefix').textContent = key.keyPrefix;
+  document.getElementById('editKeyStatusBadge').textContent = key.status;
+  document.getElementById('editKeyStatusBadge').className =
+    key.status === 'active'
+      ? 'px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+      : 'px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20';
+
+  document.getElementById('editPermCreate').checked = Boolean(key.permissions.can_create);
+  document.getElementById('editPermRead').checked = Boolean(key.permissions.can_read);
+  document.getElementById('editPermUpdate').checked = Boolean(key.permissions.can_update);
+  document.getElementById('editPermDelete').checked = Boolean(key.permissions.can_delete);
+  document.getElementById('editPermDDL').checked = Boolean(key.permissions.can_ddl);
+
+  const errEl = document.getElementById('editPermissionsError');
+  errEl.classList.add('hidden');
+  errEl.textContent = '';
+
+  document.getElementById('editPermissionsModal').classList.remove('hidden');
+};
+
+document.getElementById('closeEditPermissionsModalBtn').addEventListener('click', () => {
+  document.getElementById('editPermissionsModal').classList.add('hidden');
+});
+
+document.getElementById('editPermissionsForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const keyId = document.getElementById('editKeyId').value;
+  const can_create = document.getElementById('editPermCreate').checked;
+  const can_read = document.getElementById('editPermRead').checked;
+  const can_update = document.getElementById('editPermUpdate').checked;
+  const can_delete = document.getElementById('editPermDelete').checked;
+  const can_ddl = document.getElementById('editPermDDL').checked;
+
+  const saveBtn = document.getElementById('savePermissionsBtn');
+  const originalText = saveBtn.innerHTML;
+  saveBtn.innerHTML = '<span>Saving...</span>';
+  saveBtn.disabled = true;
+
+  const res = await fetchAdmin(`/keys/${keyId}/permissions`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      permissions: {
+        can_create,
+        can_read,
+        can_update,
+        can_delete,
+        can_ddl,
+      },
+    }),
+  });
+
+  saveBtn.innerHTML = originalText;
+  saveBtn.disabled = false;
+
+  if (res.success) {
+    document.getElementById('editPermissionsModal').classList.add('hidden');
+    showToast('Access permissions updated successfully!');
+    loadKeys();
+  } else {
+    const errEl = document.getElementById('editPermissionsError');
+    errEl.textContent = res.error || 'Failed to update permissions';
+    errEl.classList.remove('hidden');
+  }
 });
 
 // Device Modal

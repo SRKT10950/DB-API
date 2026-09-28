@@ -125,6 +125,37 @@ test('DbStorageService: injectDeviceKeyIntoSql correctly injects into INSERT and
   assert(upd.modifiedParams.length === 3 && upd.modifiedParams[2] === dummyKey, 'Should push deviceKey to params');
 });
 
+test('KeyService & MetadataStore: Updating key access permissions updates enforcement immediately', async () => {
+  const { record } = KeyService.generateApiKey({
+    appName: 'PermApp',
+    dbName: 'permdb',
+    permissions: {
+      can_create: true,
+      can_read: true,
+      can_update: false,
+      can_delete: false,
+      can_ddl: false,
+    },
+  });
+
+  // Initially DDL and DELETE are false
+  assert(!KeyService.checkPermission(record, 'DDL').allowed, 'DDL should initially be blocked');
+  assert(!KeyService.checkPermission(record, 'DELETE').allowed, 'DELETE should initially be blocked');
+
+  // Update permissions
+  const updated = metadataStore.updateKeyPermissions(record.id, {
+    can_ddl: true,
+    can_delete: true,
+  });
+  assert(Boolean(updated), 'Key should be found and updated');
+  assert(updated!.permissions.can_ddl === true, 'can_ddl should now be true');
+  assert(updated!.permissions.can_delete === true, 'can_delete should now be true');
+
+  // Verify permission check enforcement uses updated permissions
+  assert(KeyService.checkPermission(record, 'DDL').allowed, 'DDL should now be permitted');
+  assert(KeyService.checkPermission(record, 'DELETE').allowed, 'DELETE should now be permitted');
+});
+
 // Helper for HTTP requests
 function makeRequest(
   serverPort: number,
@@ -391,6 +422,32 @@ async function runHttpTests() {
     const provisionedDev = metadataStore.findDevice(testAppName, autoDeviceName, 'Mobile');
     assert(Boolean(provisionedDev), 'Device must be auto-provisioned in device registry');
     console.log('  [PASS] User table triggers auto-provisioning when device key is not found.');
+
+    // Test 13: Option to update Access Permissions (CRUD & DDL) via Admin API
+    console.log('Testing: PATCH /admin/api/keys/:keyId/permissions updates access permissions...');
+    const allKeys = metadataStore.getKeys();
+    const targetKey = allKeys.find((k) => k.appName === testAppName)!;
+    assert(Boolean(targetKey), 'Target key should exist');
+    assert(targetKey.permissions.can_ddl === false, 'Initially can_ddl should be false');
+
+    const res13 = await makeRequest(testPort, {
+      path: `/admin/api/keys/${targetKey.id}/permissions`,
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${res8.body.token}`,
+      },
+      body: {
+        permissions: {
+          can_ddl: true,
+          can_delete: true,
+        },
+      },
+    });
+    assert(res13.status === 200, `Expected 200 OK, got ${res13.status}`);
+    assert(res13.body.success === true, 'Should indicate success');
+    assert(res13.body.key.permissions.can_ddl === true, 'Updated can_ddl should be true');
+    assert(res13.body.key.permissions.can_delete === true, 'Updated can_delete should be true');
+    console.log('  [PASS] Admin API successfully updates CRUD & DDL access permissions.');
   } finally {
     server.close();
   }
@@ -418,7 +475,7 @@ async function run() {
   console.log('\nRunning Integration HTTP Tests...\n');
   try {
     await runHttpTests();
-    passed += 12;
+    passed += 13;
   } catch (err: any) {
     console.error(`[FAIL] HTTP Integration tests: ${err.message}`);
     failed++;

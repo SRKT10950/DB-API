@@ -460,4 +460,54 @@ export class DbStorageService {
       console.warn('[DbStorageService] Could not update db_device status to revoked:', err.message);
     }
   }
+
+  /**
+   * Updates an API Key's access permissions (CRUD & DDL) in db_admin
+   */
+  public static async updateApiKeyPermissions(
+    keyId: string,
+    permissions: {
+      can_create?: boolean;
+      can_read?: boolean;
+      can_update?: boolean;
+      can_delete?: boolean;
+      can_ddl?: boolean;
+    }
+  ): Promise<boolean> {
+    try {
+      const pool = PgPoolManager.getPool(config.pg.defaultDatabase);
+      const numericId = keyId.startsWith('key_') ? parseInt(keyId.substring(4), 10) : NaN;
+      let query = `
+        UPDATE db_admin
+        SET
+          can_create = COALESCE($1, can_create),
+          can_read   = COALESCE($2, can_read),
+          can_update = COALESCE($3, can_update),
+          can_delete = COALESCE($4, can_delete),
+          can_ddl    = COALESCE($5, can_ddl)
+      `;
+      const params: any[] = [
+        permissions.can_create !== undefined ? permissions.can_create : null,
+        permissions.can_read !== undefined ? permissions.can_read : null,
+        permissions.can_update !== undefined ? permissions.can_update : null,
+        permissions.can_delete !== undefined ? permissions.can_delete : null,
+        permissions.can_ddl !== undefined ? permissions.can_ddl : null,
+      ];
+
+      if (!isNaN(numericId)) {
+        query += ' WHERE id = $6;';
+        params.push(numericId);
+      } else {
+        const rec = metadataStore.getKeyById(keyId);
+        query += ' WHERE key_hash = $6;';
+        params.push(rec ? rec.keyHash : keyId);
+      }
+
+      const res = await pool.query(query, params);
+      return (res.rowCount ?? 0) > 0;
+    } catch (err: any) {
+      console.warn('[DbStorageService] Could not update permissions in db_admin:', err.message);
+      return false;
+    }
+  }
 }

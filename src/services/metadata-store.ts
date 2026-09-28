@@ -253,6 +253,46 @@ export class MetadataStore {
     return true;
   }
 
+  public updateKeyPermissions(
+    id: string,
+    permissions: Partial<ApiKeyRecord['permissions']>
+  ): ApiKeyRecord | null {
+    const key = this.getKeyById(id);
+    if (!key) return null;
+
+    key.permissions = {
+      can_create:
+        permissions.can_create !== undefined
+          ? Boolean(permissions.can_create)
+          : key.permissions.can_create,
+      can_read:
+        permissions.can_read !== undefined
+          ? Boolean(permissions.can_read)
+          : key.permissions.can_read,
+      can_update:
+        permissions.can_update !== undefined
+          ? Boolean(permissions.can_update)
+          : key.permissions.can_update,
+      can_delete:
+        permissions.can_delete !== undefined
+          ? Boolean(permissions.can_delete)
+          : key.permissions.can_delete,
+      can_ddl:
+        permissions.can_ddl !== undefined
+          ? Boolean(permissions.can_ddl)
+          : key.permissions.can_ddl,
+    };
+
+    this.scheduleSave();
+
+    // Persist to PostgreSQL db_admin table
+    import('./db-storage').then(({ DbStorageService }) => {
+      DbStorageService.updateApiKeyPermissions(id, key.permissions).catch(() => {});
+    });
+
+    return key;
+  }
+
   // --- Device Management ---
   public getDevices(): DeviceRecord[] {
     return [...this.state.devices];

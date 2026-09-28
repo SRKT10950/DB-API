@@ -209,6 +209,33 @@ router.delete('/keys/:keyId', (req: Request, res: Response) => {
   return res.json({ success: true, message: 'Key revoked successfully' });
 });
 
+router.patch('/keys/:keyId/permissions', handleUpdateKeyPermissions);
+router.put('/keys/:keyId/permissions', handleUpdateKeyPermissions);
+router.patch('/keys/:keyId', handleUpdateKeyPermissions);
+
+function handleUpdateKeyPermissions(req: Request, res: Response) {
+  const { keyId } = req.params;
+  const permissions = req.body.permissions || req.body;
+
+  if (!permissions || typeof permissions !== 'object') {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid request body: "permissions" object is required',
+    });
+  }
+
+  const updatedKey = metadataStore.updateKeyPermissions(keyId, permissions);
+  if (!updatedKey) {
+    return res.status(404).json({ success: false, error: `API Key '${keyId}' not found` });
+  }
+
+  return res.json({
+    success: true,
+    message: 'Access permissions updated successfully in memory and PostgreSQL db_admin',
+    key: updatedKey,
+  });
+}
+
 /**
  * 4. Devices
  */

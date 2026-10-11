@@ -1,33 +1,7 @@
 services:
   # ===============================================================
-  # Protected PostgreSQL Database
-  # Kept inside the internal Docker network to prevent direct WAN access
-  # ===============================================================
-  postgres:
-    image: postgres:16-alpine
-    container_name: db-postgres-local
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${PG_USER:-postgres}
-      POSTGRES_PASSWORD: ${PG_PASSWORD:-postgres}
-      POSTGRES_DB: ${PG_DEFAULT_DATABASE:-postgres}
-    volumes:
-      - pg_data:/var/lib/postgresql/data
-    networks:
-      - db-internal-network
-    # Notice: Port 5432 is kept internal to protect the DB from direct internet exposure.
-    # Uncomment only if you need direct localhost debugging:
-    # ports:
-    #   - "127.0.0.1:5432:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${PG_USER:-postgres} -d ${PG_DEFAULT_DATABASE:-postgres}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-
-  # ===============================================================
   # DB API Gateway
+  # Connects directly to the Common PostgreSQL Database (shared_postgres)
   # Acts as the secure barrier, validating 7 headers, checking CRUD/DDL
   # permissions, detecting SQLi, and logging audit events.
   # ===============================================================
@@ -43,10 +17,10 @@ services:
       PORT: 3000
       NODE_ENV: production
       API_BASE_URL: ${API_BASE_URL:-https://db.mhservice.co.in}
-      PG_HOST: postgres
-      PG_PORT: 5432
+      PG_HOST: ${PG_HOST:-shared_postgres}
+      PG_PORT: ${PG_PORT:-5432}
       PG_USER: ${PG_USER:-postgres}
-      PG_PASSWORD: ${PG_PASSWORD:-postgres}
+      PG_PASSWORD: ${PG_PASSWORD:-postgres_master_pass_2026}
       PG_DEFAULT_DATABASE: ${PG_DEFAULT_DATABASE:-postgres}
       PG_SSL: "false"
       ADMIN_SECRET: ${ADMIN_SECRET:-mh_admin_super_secret_key_2026}
@@ -56,12 +30,38 @@ services:
     volumes:
       - api_data:/app/data
     networks:
+      - coolify
       - db-internal-network
-    depends_on:
-      postgres:
-        condition: service_healthy
+
+  # ===============================================================
+  # Optional Local PostgreSQL Database for standalone offline debugging
+  # Activated only when needed with: docker compose --profile local-db up
+  # ===============================================================
+  postgres:
+    profiles:
+      - local-db
+    image: postgres:16-alpine
+    container_name: db-postgres-local
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${PG_USER:-postgres}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-postgres}
+      POSTGRES_DB: ${PG_DEFAULT_DATABASE:-postgres}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    networks:
+      - db-internal-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER:-postgres} -d ${PG_DEFAULT_DATABASE:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
 networks:
+  coolify:
+    name: coolify
+    external: true
   db-internal-network:
     driver: bridge
     name: db-internal-network

@@ -12,10 +12,22 @@ export class PgPoolManager {
   private static pools: Map<string, Pool> = new Map();
 
   /**
+   * Normalizes and resolves a database identifier.
+   * Empty string, 'common', 'default', or 'shared' resolve to the common database (config.pg.defaultDatabase).
+   */
+  public static resolveDbName(dbName?: string | null): string {
+    const raw = (dbName || '').toLowerCase().trim();
+    if (!raw || raw === 'common' || raw === 'default' || raw === 'shared') {
+      return config.pg.defaultDatabase.toLowerCase().trim();
+    }
+    return raw;
+  }
+
+  /**
    * Retrieves or creates a PostgreSQL connection pool for the given database name.
    */
-  public static getPool(dbName: string): Pool {
-    const key = dbName.toLowerCase().trim();
+  public static getPool(dbName?: string): Pool {
+    const key = this.resolveDbName(dbName);
 
     if (!this.pools.has(key)) {
       const poolConfig: PoolConfig = {
@@ -73,20 +85,30 @@ export class PgPoolManager {
   }
 
   /**
-   * Tests general connection to PostgreSQL default database.
+   * Tests general connection to PostgreSQL common/default database.
    */
-  public static async testConnection(): Promise<{ connected: boolean; version?: string; error?: string }> {
+  public static async testConnection(): Promise<{
+    connected: boolean;
+    version?: string;
+    error?: string;
+    database?: string;
+    host?: string;
+  }> {
     try {
       const pool = this.getPool(config.pg.defaultDatabase);
-      const res = await pool.query('SELECT version()');
+      const res = await pool.query('SELECT version(), current_database()');
       return {
         connected: true,
         version: res.rows[0]?.version,
+        database: res.rows[0]?.current_database || config.pg.defaultDatabase,
+        host: config.pg.host,
       };
     } catch (err: any) {
       return {
         connected: false,
         error: err.message || 'Failed to connect to PostgreSQL',
+        database: config.pg.defaultDatabase,
+        host: config.pg.host,
       };
     }
   }
@@ -118,9 +140,9 @@ export class PgPoolManager {
   }
 
   /**
-   * Lists tables within a specific database.
+   * Lists tables within a specific database (defaults to common database).
    */
-  public static async listTables(dbName: string): Promise<string[]> {
+  public static async listTables(dbName?: string): Promise<string[]> {
     const pool = this.getPool(dbName);
     const res = await pool.query(
       `SELECT table_name 

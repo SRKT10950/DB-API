@@ -142,14 +142,15 @@ async function loadOverview() {
 
   // Update DB Status Pill
   if (data.database.connected) {
+    const commonDb = data.database.commonDatabase || data.database.defaultDatabase || 'postgres';
     pgStatusPill.innerHTML = `
       <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
-      <span class="text-emerald-400 font-mono">Postgres Connected</span>
+      <span class="text-emerald-400 font-mono">Common DB (${escapeHtml(commonDb)}) Connected</span>
     `;
   } else {
     pgStatusPill.innerHTML = `
       <span class="w-2 h-2 rounded-full bg-rose-500"></span>
-      <span class="text-rose-400 font-mono">DB Disconnected</span>
+      <span class="text-rose-400 font-mono">Common DB Disconnected</span>
     `;
   }
 
@@ -329,14 +330,17 @@ async function loadDatabases() {
 
   const list = document.getElementById('databasesList');
   list.innerHTML = '';
+  const commonDb = (data.commonDatabase || 'postgres').toLowerCase();
 
   data.databases.forEach((db) => {
+    const isCommon = db.toLowerCase() === commonDb;
     const li = document.createElement('li');
     li.className = 'p-3 bg-dark-800 rounded-lg border border-slate-700/60 flex items-center justify-between';
     li.innerHTML = `
       <div class="flex items-center space-x-2">
-        <span class="w-2.5 h-2.5 rounded-full bg-sky-400"></span>
+        <span class="w-2.5 h-2.5 rounded-full ${isCommon ? 'bg-emerald-400' : 'bg-sky-400'}"></span>
         <span class="text-xs font-mono font-bold text-white">${escapeHtml(db)}</span>
+        ${isCommon ? '<span class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-sans font-semibold">Common Database</span>' : ''}
       </div>
       <button onclick="selectPlaygroundDb('${db}')" class="text-xs text-sky-400 hover:text-sky-300 font-sans">Use in Playground</button>
     `;
@@ -346,7 +350,8 @@ async function loadDatabases() {
 
 window.selectPlaygroundDb = function (db) {
   document.getElementById('playDbName').value = db;
-  document.getElementById('playEndpoint').value = `/API/1/${db}/query`;
+  const isCommon = db.toLowerCase() === 'common' || db.toLowerCase() === 'postgres';
+  document.getElementById('playEndpoint').value = isCommon ? `/API/1/query` : `/API/1/${db}/query`;
   document.querySelector('[data-tab="playgroundTab"]').click();
 };
 
@@ -773,7 +778,12 @@ const playEndpoint = document.getElementById('playEndpoint');
 
 if (playDbName && playEndpoint) {
   playDbName.addEventListener('input', () => {
-    playEndpoint.value = `/API/1/${playDbName.value.trim()}/query`;
+    const val = playDbName.value.trim();
+    if (!val || val.toLowerCase() === 'common' || val.toLowerCase() === 'default') {
+      playEndpoint.value = `/API/1/query`;
+    } else {
+      playEndpoint.value = `/API/1/${val}/query`;
+    }
   });
 }
 

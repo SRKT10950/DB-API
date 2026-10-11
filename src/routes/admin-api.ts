@@ -141,6 +141,8 @@ router.get('/overview', async (req: Request, res: Response) => {
       error: pgStatus.error,
       host: config.pg.host,
       port: config.pg.port,
+      defaultDatabase: config.pg.defaultDatabase,
+      commonDatabase: config.pg.defaultDatabase,
     },
     system: {
       uptimeSeconds: Math.floor(process.uptime()),
@@ -295,7 +297,11 @@ router.get('/logs', (req: Request, res: Response) => {
 router.get('/databases', async (req: Request, res: Response) => {
   try {
     const databases = await PgPoolManager.listDatabases();
-    return res.json({ success: true, databases });
+    return res.json({
+      success: true,
+      databases,
+      commonDatabase: config.pg.defaultDatabase,
+    });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
   }

@@ -156,6 +156,18 @@ test('KeyService & MetadataStore: Updating key access permissions updates enforc
   assert(KeyService.checkPermission(record, 'DELETE').allowed, 'DELETE should now be permitted');
 });
 
+test('PgPoolManager: resolveDbName correctly maps aliases common, default, shared, and empty to defaultDatabase', async () => {
+  const { PgPoolManager } = await import('../src/services/pg-pool');
+  const { config } = await import('../src/config');
+  const defaultDb = config.pg.defaultDatabase.toLowerCase().trim();
+
+  assert(PgPoolManager.resolveDbName('') === defaultDb, 'Empty string should map to defaultDatabase');
+  assert(PgPoolManager.resolveDbName('common') === defaultDb, "'common' should map to defaultDatabase");
+  assert(PgPoolManager.resolveDbName('default') === defaultDb, "'default' should map to defaultDatabase");
+  assert(PgPoolManager.resolveDbName('shared') === defaultDb, "'shared' should map to defaultDatabase");
+  assert(PgPoolManager.resolveDbName('wallet') === 'wallet', "'wallet' should map to 'wallet'");
+});
+
 // Helper for HTTP requests
 function makeRequest(
   serverPort: number,

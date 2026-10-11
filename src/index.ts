@@ -62,9 +62,9 @@ app.use(healthRouter);
 // Admin API
 app.use('/admin/api', adminApiRouter);
 
-// Main Database API Endpoints: /API/1/:dbName
-// Case-insensitive routing for /API/1/:dbName or /api/1/:dbName
-app.use(['/API/1/:dbName', '/api/1/:dbName'], apiRateLimiter, apiV1Router);
+// Main Database API Endpoints: /API/1/:dbName or direct /API/1 (points to common database)
+// Case-insensitive routing for /API/1/:dbName, /api/1/:dbName, /API/1, or /api/1
+app.use(['/API/1/:dbName', '/api/1/:dbName', '/API/1', '/api/1'], apiRateLimiter, apiV1Router);
 
 // Root path redirect
 app.get('/', (req, res) => {

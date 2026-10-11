@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { metadataStore, ApiKeyRecord, DeviceRecord } from '../services/metadata-store';
 import { KeyService } from '../services/key-service';
 import { DbStorageService } from '../services/db-storage';
+import { PgPoolManager } from '../services/pg-pool';
 
 export interface SecurityContext {
   keyRecord: ApiKeyRecord;
@@ -61,7 +62,8 @@ export function securityHeadersMiddleware(req: Request, res: Response, next: Nex
     req.socket.remoteAddress ||
     '127.0.0.1';
 
-  const targetDbName = req.params.dbName || '';
+  const rawDbName = req.params.dbName || '';
+  const targetDbName = PgPoolManager.resolveDbName(rawDbName);
 
   // Detect if operation is an insert/create/update on a user/account table
   const isWriteMethod = req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH';
@@ -196,8 +198,14 @@ export function securityHeadersMiddleware(req: Request, res: Response, next: Nex
     });
   }
 
-  // 5. Validate Database match (if path contains targetDbName)
-  if (targetDbName && keyRecord.dbName.toLowerCase() !== targetDbName.toLowerCase()) {
+  // 5. Validate Database match (with support for common database aliases and wildcards)
+  const authorizedDb = PgPoolManager.resolveDbName(keyRecord.dbName);
+  const isMatch =
+    keyRecord.dbName.toLowerCase() === '*' ||
+    authorizedDb === targetDbName ||
+    keyRecord.dbName.toLowerCase() === (req.params.dbName || '').toLowerCase();
+
+  if (!isMatch) {
     metadataStore.addAuditLog({
       id: `log_${crypto.randomBytes(6).toString('hex')}`,
       timestamp: new Date().toISOString(),

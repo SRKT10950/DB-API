@@ -55,12 +55,13 @@ function recordAudit(
  */
 router.post('/query', async (req: Request, res: Response) => {
   const ctx = req.securityContext!;
-  const { query, params } = req.body;
+  const query = req.body.query || req.body.sql;
+  const params = req.body.params;
 
   if (!query || typeof query !== 'string') {
     return res.status(400).json({
       success: false,
-      error: 'Invalid request body: "query" string is required',
+      error: 'Invalid request body: "query" (or "sql") string is required',
     });
   }
 

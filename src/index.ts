@@ -62,9 +62,32 @@ app.use(healthRouter);
 // Admin API
 app.use('/admin/api', adminApiRouter);
 
-// Main Database API Endpoints: /API/1/:dbName or direct /API/1 (points to common database)
-// Case-insensitive routing for /API/1/:dbName, /api/1/:dbName, /API/1, or /api/1
-app.use(['/API/1/:dbName', '/api/1/:dbName', '/API/1', '/api/1'], apiRateLimiter, apiV1Router);
+// Normalize API v1 paths: If dbName is omitted (e.g. /API/1/query or /api/1/tables), route to common database
+const ACTION_NAMES = new Set(['query', 'tables', 'health', 'insert', 'update', 'delete']);
+
+app.use(['/API/1', '/api/1'], (req, res, next) => {
+  const subpath = req.url.split('?')[0].replace(/^\/+/, '');
+  const firstSegment = subpath.split('/')[0].toLowerCase();
+
+  if (ACTION_NAMES.has(firstSegment)) {
+    // Action called directly without dbName -> route to common database
+    const commonDb = PgPoolManager.resolveDbName(null);
+    req.url = `/${commonDb}${req.url.startsWith('/') ? req.url : '/' + req.url}`;
+  } else if (!subpath || subpath === '') {
+    // Root info for /API/1
+    return res.json({
+      success: true,
+      service: 'Database API Gateway',
+      environment: config.nodeEnv,
+      commonDatabase: PgPoolManager.resolveDbName(null),
+      documentation: `${config.apiBaseUrl}/admin`,
+    });
+  }
+  next();
+});
+
+// Main Database API Endpoints: /API/1/:dbName
+app.use(['/API/1/:dbName', '/api/1/:dbName'], apiRateLimiter, apiV1Router);
 
 // Root path redirect
 app.get('/', (req, res) => {
